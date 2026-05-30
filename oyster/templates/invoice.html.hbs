@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invoice — {{customer_name}} — {{period_label}}</title>
+  <style>
+    :root {
+      --ink: #1f2933;
+      --muted: #6b7280;
+      --faint: #9ca3af;
+      --line: #e5e7eb;
+      --accent: #0f766e;
+      --bg: #f9fafb;
+      --saved-bg: #ecfdf5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 2rem;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .invoice {
+      max-width: 820px;
+      margin: 0 auto;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 2.25rem 2.5rem;
+    }
+    header.masthead {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+    .masthead h1 { margin: 0; font-size: 1.5rem; letter-spacing: 0.5px; }
+    .masthead .period { color: var(--muted); margin-top: 0.25rem; }
+    .bill-to { text-align: right; }
+    .bill-to .name { font-weight: 600; font-size: 1.05rem; }
+    .bill-to .cid { color: var(--faint); font-size: 0.85rem; }
+    .programmes { margin: 0.4rem 0 0; }
+    .badge {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 999px;
+      padding: 0.1rem 0.6rem;
+      font-size: 0.75rem;
+      margin-left: 0.3rem;
+    }
+    .payg { color: var(--muted); font-style: italic; }
+    h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 0.4rem;
+      margin: 1.75rem 0 0.75rem;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.5rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+    tr.saved td { background: var(--saved-bg); }
+    .struck { color: var(--faint); text-decoration: line-through; margin-right: 0.35rem; }
+    .saved-tag {
+      display: inline-block;
+      font-size: 0.68rem;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      padding: 0 0.3rem;
+      margin-left: 0.4rem;
+    }
+    .peak { color: var(--ink); }
+    .offpeak { color: var(--muted); }
+    .nocap { color: var(--faint); font-style: italic; }
+    .totals { margin-top: 1.5rem; margin-left: auto; width: 320px; }
+    .totals tr td { border: none; padding: 0.3rem 0.5rem; }
+    .totals .label { color: var(--muted); }
+    .totals .grand td { border-top: 2px solid var(--accent); font-weight: 700; font-size: 1.1rem; padding-top: 0.6rem; }
+    .totals .discount td { color: var(--accent); }
+    .upsell {
+      background: var(--saved-bg);
+      border: 1px solid #a7f3d0;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.6rem;
+    }
+    .upsell strong { color: var(--accent); }
+    .best-value { color: var(--muted); font-style: italic; }
+    footer { margin-top: 2rem; color: var(--faint); font-size: 0.75rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <main class="invoice">
+    <header class="masthead">
+      <div>
+        <h1>Oyster Invoice</h1>
+        <div class="period">{{period_label}}</div>
+      </div>
+      <div class="bill-to">
+        <div class="name">{{customer_name}}</div>
+        <div class="cid">{{customer_id}}</div>
+        <div class="programmes">
+          {{#if enrolled}}
+            {{#each enrolled}}<span class="badge">{{this}}</span>{{/each}}
+          {{else}}
+            <span class="payg">Pay as you go (no programmes)</span>
+          {{/if}}
+        </div>
+      </div>
+    </header>
+
+    <section>
+      <h2>Trips</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Time</th>
+            <th>Mode</th>
+            <th>Route</th>
+            <th>Zones</th>
+            <th>Fare type</th>
+            <th class="num">Single</th>
+            <th class="num">Charged</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each lines}}
+          <tr class="{{#if discounted}}saved{{/if}}">
+            <td>{{date}}</td>
+            <td>{{time}}</td>
+            <td>{{mode}}</td>
+            <td>{{route}}</td>
+            <td>{{zones}}</td>
+            <td class="{{#if peak_label}}peak{{/if}}">{{peak_label}}</td>
+            <td class="num">{{single_fare}}</td>
+            <td class="num">
+              {{#if discounted}}<span class="struck">{{single_fare}}</span>{{/if}}{{charged}}{{#if discounted}}<span class="saved-tag">saved</span>{{/if}}
+            </td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Caps applied</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Pool</th>
+            <th>Band</th>
+            <th>Result</th>
+            <th class="num">Discount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each caps}}
+          <tr>
+            <td>{{pool_label}}</td>
+            <td>{{band}}</td>
+            <td>{{#if bound}}{{bound_label}}{{else}}<span class="nocap">{{bound_label}}</span>{{/if}}</td>
+            <td class="num">{{#if bound}}{{discount}}{{else}}—{{/if}}</td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <table class="totals">
+        <tbody>
+          <tr>
+            <td class="label">Subtotal</td>
+            <td class="num">{{subtotal}}</td>
+          </tr>
+          {{#if commuter_club_fee}}
+          <tr>
+            <td class="label">Commuter Club fee</td>
+            <td class="num">{{commuter_club_fee}}</td>
+          </tr>
+          {{/if}}
+          {{#if green_discount}}
+          <tr class="discount">
+            <td class="label">Green discount</td>
+            <td class="num">−{{green_discount}}</td>
+          </tr>
+          {{/if}}
+          <tr class="grand">
+            <td>Total due</td>
+            <td class="num">{{grand_total}}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    {{#if upsells}}
+    <section>
+      <h2>Upsell offers</h2>
+      {{#each upsells}}
+      <div class="upsell">
+        Save <strong>{{saving}}</strong> with <strong>{{programme_label}}</strong> —
+        you'd pay {{would_have_paid}} instead of your {{grand_total}}.
+      </div>
+      {{/each}}
+    </section>
+    {{else}}
+    <section>
+      <p class="best-value">You're already on the best-value fare for this period — no cheaper programme available.</p>
+    </section>
+    {{/if}}
+
+    <footer>Generated by the Oyster invoice system · {{period_label}}</footer>
+  </main>
+</body>
+</html>
