@@ -233,35 +233,48 @@ def main() -> None:
         )
 
     # bob: railcard holder, ~all off-peak. His railcard makes him strictly
-    # cheaper than with no programmes, and he gets a green_traveller upsell.
+    # cheaper than with no programmes. Of his qualifying upsells, zone_resident
+    # has the largest saving, so the invoice shows ONLY that one (the lesser
+    # green_traveller upsell is suppressed per RULES §7b).
     bob = customers["bob"]
     bob_no_prog = compute_invoice(bob, period, services, programmes=set())
     assert invoices["bob"].grand_total < bob_no_prog.grand_total, (
         f"bob railcard grand_total={invoices['bob'].grand_total} not < "
         f"no-programmes={bob_no_prog.grand_total}"
     )
-    bob_green = _upsell_for(invoices["bob"], "green_traveller")
-    assert bob_green is not None and bob_green.saving > _ZERO, (
-        "bob expected a green_traveller upsell with saving > 0"
+    assert len(invoices["bob"].upsells) == 1, (
+        f"bob expected a single upsell, got {len(invoices['bob'].upsells)}"
+    )
+    bob_zone = _upsell_for(invoices["bob"], "zone_resident")
+    assert bob_zone is not None and bob_zone.saving > _ZERO, (
+        "bob expected zone_resident as the single highest-saving upsell"
+    )
+    assert _upsell_for(invoices["bob"], "green_traveller") is None, (
+        "bob: lesser green_traveller upsell should be suppressed"
     )
     print(
         f"\n  bob railcard: £{invoices['bob'].grand_total} < no-programmes "
-        f"£{bob_no_prog.grand_total}; green upsell saving £{bob_green.saving}."
+        f"£{bob_no_prog.grand_total}; zone_resident upsell saving £{bob_zone.saving}."
     )
 
-    # alice: not enrolled; commuter_club upsell is the Z1-2 standard offer (£130),
-    # fully in-band with no bus, so saving = £150.00 − £130.00 = £20.00.
-    alice_cc = _upsell_for(invoices["alice"], "commuter_club")
-    assert alice_cc is not None, "alice expected a commuter_club upsell"
-    assert alice_cc.would_have_paid == Decimal("130.00"), (
-        f"alice commuter_club would_have_paid={alice_cc.would_have_paid}, expected 130.00"
+    # alice: not enrolled. Several programmes would qualify (e.g. commuter_club
+    # saves £20.00 at the Z1-2 standard offer of £130), but railcard saves the
+    # most (£50.00), so the invoice shows ONLY railcard and the lesser
+    # commuter_club upsell is suppressed per RULES §7b.
+    assert len(invoices["alice"].upsells) == 1, (
+        f"alice expected a single upsell, got {len(invoices['alice'].upsells)}"
     )
-    assert alice_cc.saving == Decimal("20.00"), (
-        f"alice commuter_club saving={alice_cc.saving}, expected 20.00"
+    alice_rail = _upsell_for(invoices["alice"], "railcard")
+    assert alice_rail is not None, "alice expected railcard as the single highest-saving upsell"
+    assert alice_rail.saving == Decimal("50.00"), (
+        f"alice railcard saving={alice_rail.saving}, expected 50.00"
+    )
+    assert _upsell_for(invoices["alice"], "commuter_club") is None, (
+        "alice: lesser commuter_club upsell should be suppressed"
     )
     print(
-        f"  alice commuter_club upsell: would_have_paid=£{alice_cc.would_have_paid} "
-        f"saving=£{alice_cc.saving}."
+        f"  alice railcard upsell: would_have_paid=£{alice_rail.would_have_paid} "
+        f"saving=£{alice_rail.saving}."
     )
     # alice correctly has NO zone_resident upsell. Her morning legs DO get the
     # −25% home-zone discount on their single fares, but her rail spend is capped

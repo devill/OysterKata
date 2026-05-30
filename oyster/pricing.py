@@ -501,12 +501,15 @@ def _compute_upsell_list(
     actual_grand_total: Decimal,
     priced: list[_PricedLeg],
 ) -> list[Upsell]:
-    """Build the qualifying upsells for the ACTUAL invoice (RULES §7b).
+    """Build the single highest-saving upsell for the ACTUAL invoice (RULES §7b).
 
     For each programme the customer is not enrolled in and is eligible for,
-    re-price with that one extra programme and keep the upsell only if it saves
-    money. The commuter_club upsell offers the customer's own rail band at the
-    standard-offer fee.
+    re-price with that one extra programme and keep the candidate only if it
+    saves money. The commuter_club upsell offers the customer's own rail band at
+    the standard-offer fee. Of all qualifying candidates, only the one with the
+    maximum saving is returned (as a single-element list); ties are broken by
+    programme order (railcard > zone_resident > commuter_club > green_traveller).
+    Returns an empty list when nothing qualifies.
     """
     eligible = _eligible_upsell_programmes(customer, priced)
     upsells: list[Upsell] = []
@@ -535,7 +538,9 @@ def _compute_upsell_list(
                     saving=saving,
                 )
             )
-    return upsells
+    if not upsells:
+        return []
+    return [max(upsells, key=lambda u: u.saving)]
 
 
 def _eligible_upsell_programmes(

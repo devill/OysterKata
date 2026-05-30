@@ -54,8 +54,11 @@ def _assert_content_fidelity(htmls: dict[str, str]) -> None:
     assert "£150.00" in htmls["dave"], "dave: commuter club fee £150.00 missing"
     assert "Commuter Club" in htmls["dave"], "dave: Commuter Club programme missing"
 
-    assert "Green Traveller" in htmls["bob"], "bob: Green Traveller upsell missing"
+    assert "Zone Resident" in htmls["bob"], "bob: Zone Resident (highest-saving) upsell missing"
     assert "You'd save" in htmls["bob"], "bob: upsell saving missing"
+    assert "Green Traveller" not in htmls["bob"], (
+        "bob: lesser Green Traveller upsell should be suppressed (only single highest-saving upsell shown)"
+    )
 
     assert "Monthly cap" in htmls["alice"], "alice: monthly cap label missing"
     assert "£40.00" in htmls["alice"], "alice: rail monthly-cap discount £40.00 missing"

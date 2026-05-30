@@ -182,13 +182,18 @@ Within a single pricing run for a given **active programme set**:
 5. Add the commuter-club `fee` line if active.
 6. Apply `green_traveller` (−5%) to the resulting total if active.
 
-**Upsell eligibility** (a section is produced only when `saving > 0`):
+**Upsell eligibility** (a programme qualifies only when `saving > 0`):
 - `railcard`, `zone_resident`, `commuter_club`: eligible whenever not enrolled.
 - `green_traveller`: eligible only when not enrolled AND ≥80% of taps off-peak.
 
-Each upsell re-runs the whole engine with that one extra programme added to the
-customer's enrolled set, then reports
-`would_have_paid` and `saving = actual_grand_total − would_have_paid`.
+Each candidate upsell re-runs the whole engine with that one extra programme
+added to the customer's enrolled set, then reports `would_have_paid` and
+`saving = actual_grand_total − would_have_paid`.
+
+The invoice shows **only the single highest-saving** qualifying upsell — there is
+no point telling a customer about a programme that would save them less. Ties are
+broken by programme order: `railcard` > `zone_resident` > `commuter_club` >
+`green_traveller`. If no programme saves money, no upsell is shown.
 
 ## 8. Invoice contents
 
@@ -202,8 +207,8 @@ The HTML invoice must contain:
    total discount it produced.
 4. **Subtotal**, any **commuter-club fee line**, any **green discount**, and
    **grand total**.
-5. **Upsell sections** — one per eligible, non-enrolled programme with a
-   positive saving.
+5. **Upsell section** — the single highest-saving eligible, non-enrolled
+   programme (if any saves money); see §7b.
 
 ## 9. Services (data sources)
 
