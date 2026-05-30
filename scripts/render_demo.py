@@ -145,7 +145,7 @@ def main() -> None:
     OUTPUT_PATH.write_text(html, encoding="utf-8")
 
     assert "Camden Town" in html, "known route string missing"
-    assert "Upsell" in html, "upsell heading missing"
+    assert 'class="upsell"' in html, "upsell banner missing"
     assert "Monthly cap" in html, "bound cap label missing"
     assert "No cap reached" in html, "non-bound cap label missing"
     assert "£292.41" in html, "grand total missing"

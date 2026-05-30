@@ -55,7 +55,7 @@ def _assert_content_fidelity(htmls: dict[str, str]) -> None:
     assert "Commuter Club" in htmls["dave"], "dave: Commuter Club programme missing"
 
     assert "Green Traveller" in htmls["bob"], "bob: Green Traveller upsell missing"
-    assert "Save" in htmls["bob"], "bob: upsell saving missing"
+    assert "You'd save" in htmls["bob"], "bob: upsell saving missing"
 
     assert "Monthly cap" in htmls["alice"], "alice: monthly cap label missing"
     assert "£40.00" in htmls["alice"], "alice: rail monthly-cap discount £40.00 missing"
