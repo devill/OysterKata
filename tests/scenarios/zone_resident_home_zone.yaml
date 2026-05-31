@@ -1,0 +1,6 @@
+# Zone 2 resident: an off-peak hop that STARTS in the home zone gets the -25%
+# zone-resident discount.
+home_zone: 2
+enrolled: [zone_resident]
+trips:
+  - { time: "2026-04-07 11:00", mode: tube, from: "Brixton", to: "King's Cross" }

@@ -1,0 +1,5 @@
+# Green Traveller: a flat -5% applies to the whole post-cap total.
+enrolled: [green_traveller]
+trips:
+  - { time: "2026-04-07 11:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-07 13:00", mode: tube, from: "King's Cross", to: "Brixton" }

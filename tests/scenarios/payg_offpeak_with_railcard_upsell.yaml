@@ -1,0 +1,7 @@
+# Off-peak single hop, pay-as-you-go: a Railcard would save money, so the
+# invoice surfaces a Railcard upsell.
+trips:
+  - time: "2026-04-07 11:00"   # Tuesday, off-peak
+    mode: tube
+    from: "King's Cross"
+    to: "Brixton"

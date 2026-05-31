@@ -1,0 +1,18 @@
+# Three off-peak Z1-2 hops a day, Mon-Fri of one ISO week: each day stays under
+# the daily cap but the week total crosses the weekly rail cap.
+trips:
+  - { time: "2026-04-13 11:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-13 12:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-13 13:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-14 11:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-14 12:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-14 13:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-15 11:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-15 12:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-15 13:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-16 11:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-16 12:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-16 13:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-17 11:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-17 12:00", mode: tube, from: "King's Cross", to: "Brixton" }
+  - { time: "2026-04-17 13:00", mode: tube, from: "King's Cross", to: "Brixton" }

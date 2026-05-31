@@ -1,0 +1,6 @@
+# Both per-leg discounts compose on one off-peak home-zone hop: zone-resident
+# (-25%) then Railcard (-1/3).
+home_zone: 2
+enrolled: [railcard, zone_resident]
+trips:
+  - { time: "2026-04-07 11:00", mode: tube, from: "Brixton", to: "King's Cross" }

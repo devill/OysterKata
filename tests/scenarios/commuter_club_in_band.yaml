@@ -1,0 +1,7 @@
+# Commuter Club member (band Z1-3): an in-band rail hop is charged nothing and
+# the flat club fee is added instead.
+enrolled: [commuter_club]
+commuter_club_band: [1, 3]
+commuter_club_fee: 150.0
+trips:
+  - { time: "2026-04-07 08:00", mode: tube, from: "King's Cross", to: "Ealing Broadway" }

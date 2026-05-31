@@ -1,0 +1,4 @@
+# A journey that never touches zone 1 is priced from the outer fare table and
+# falls in the "outer" cap band.
+trips:
+  - { time: "2026-04-07 08:00", mode: overground, from: "Ealing Broadway", to: "Wembley Central" }

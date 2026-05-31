@@ -1,0 +1,11 @@
+# Four bus taps: the 2nd and 3rd fall inside the 60-minute Hopper window of the
+# first and ride free; the 4th opens a new window and is charged.
+trips:
+  - time: "2026-04-08 10:00"
+    mode: bus
+  - time: "2026-04-08 10:20"
+    mode: bus
+  - time: "2026-04-08 10:50"
+    mode: bus
+  - time: "2026-04-08 11:05"
+    mode: bus

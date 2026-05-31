@@ -1,0 +1,4 @@
+# Stratford is a boundary station (zones 2 and 3); the engine picks the cheaper
+# endpoint-zone combination for the single fare.
+trips:
+  - { time: "2026-04-07 08:00", mode: tube, from: "Stratford", to: "King's Cross" }

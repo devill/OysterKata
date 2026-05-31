@@ -1,0 +1,18 @@
+# Four peak Z1-2 hops in one day exceed the daily rail cap, so the day is capped.
+trips:
+  - time: "2026-04-07 07:00"
+    mode: tube
+    from: "King's Cross"
+    to: "Brixton"
+  - time: "2026-04-07 08:00"
+    mode: tube
+    from: "King's Cross"
+    to: "Brixton"
+  - time: "2026-04-07 17:00"
+    mode: tube
+    from: "King's Cross"
+    to: "Brixton"
+  - time: "2026-04-07 18:00"
+    mode: tube
+    from: "King's Cross"
+    to: "Brixton"
