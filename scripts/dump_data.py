@@ -1,3 +1,10 @@
+"""DEMO ONLY — dumps each sample customer's profile and trip summary from the
+simulated external services; output varies on every run because that data is
+non-deterministic. This is NOT a validation gate; do not use it to check behaviour.
+
+Run from the repo root:  python scripts/dump_data.py
+"""
+
 from __future__ import annotations
 
 import sys
