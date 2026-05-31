@@ -1,0 +1,15 @@
+[project]
+name = "oyster"
+version = "0.1.0"
+description = "Billing service for London transport travel"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "approvaltests>=14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
