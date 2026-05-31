@@ -67,6 +67,7 @@ reviewing a diff:
 > name as its id; a provider that loads every YAML file from the directory and
 > builds the plain inputs; a namer mapping each scenario to its approved/received
 > HTML; and a diff reporter that is quiet in CI and opens a diff tool locally.
+> **IMPORTANT** use an existing approval test package, don't roll your own.
 >
 > Keep the test a thin wrapper around the real production code — no pricing logic
 > in it, and the deterministic fare/zone/calendar rules used as-is. Never
