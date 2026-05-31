@@ -1,10 +1,12 @@
 """Adapt an Invoice into the template context and orchestrate generation.
 
-Two seams live here, kept apart:
+Three seams live here, kept apart:
 - `invoice_to_context` is a pure adapter: Invoice -> the context dict that
   `invoice.html.hbs` consumes (the exact shape documented in render_demo.py).
-- `generate_invoice_html` is the orchestrator: it queries the services
-  (RULES §9), prices via `compute_invoice`, adapts, and renders the template.
+- `render_invoice_html` is the data-in renderer: customer + plain trips in,
+  HTML out, with no external-service access.
+- `generate_invoice_html` is the I/O orchestrator: it queries the services
+  (RULES §9) for the customer and trips, then delegates to `render_invoice_html`.
 """
 
 from __future__ import annotations
@@ -13,8 +15,8 @@ from decimal import Decimal
 from pathlib import Path
 
 from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
-from oyster.model import BillingPeriod, Programme
-from oyster.pricing import Services, compute_invoice
+from oyster.model import BillingPeriod, Customer, Programme, Trip
+from oyster.pricing import price_invoice
 from oyster.rules.bank_holidays import BankHolidayService
 from oyster.rules.fare_table import FareTable
 from oyster.rules.station_registry import StationRegistry
@@ -102,6 +104,32 @@ def invoice_to_context(invoice: Invoice) -> dict:
     }
 
 
+def render_invoice_html(
+    customer: Customer,
+    period: BillingPeriod,
+    trips: list[Trip],
+    *,
+    stations: StationRegistry,
+    fares: FareTable,
+    holidays: BankHolidayService,
+) -> str:
+    """Price one customer's trips and render the invoice to HTML (data-in seam).
+
+    Pure on its inputs: pricing, context adaptation and template rendering with
+    no external-service access. `generate_invoice_html` is the I/O wrapper.
+    """
+    invoice = price_invoice(
+        customer,
+        period,
+        trips,
+        stations=stations,
+        fares=fares,
+        bank_holidays=holidays,
+    )
+    context = invoice_to_context(invoice)
+    return render_file(_TEMPLATE_PATH, context)
+
+
 def generate_invoice_html(
     customer_id: str,
     period: BillingPeriod,
@@ -118,13 +146,12 @@ def generate_invoice_html(
     seam from RULES §9. `customer_id` + `period` in, HTML out.
     """
     customer = customers.get(customer_id)
-    services = Services(
-        customers=customers,
-        trips=trips,
+    customer_trips = trips.trips_for(customer_id, period)
+    return render_invoice_html(
+        customer,
+        period,
+        customer_trips,
         stations=stations,
         fares=fares,
-        bank_holidays=holidays,
+        holidays=holidays,
     )
-    invoice = compute_invoice(customer, period, services)
-    context = invoice_to_context(invoice)
-    return render_file(_TEMPLATE_PATH, context)
