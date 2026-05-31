@@ -1,0 +1,5 @@
+# Test-only dependencies. The Oyster product itself has no third-party deps;
+# these are needed only to run the constrained approval tests under tests/.
+approvaltests>=18.0
+PyYAML>=6.0
+pytest>=8.0

@@ -13,3 +13,5 @@ venv/
 env/
 ENV/
 .claude-channel/
+.approval_tests_temp/
+*.received.html

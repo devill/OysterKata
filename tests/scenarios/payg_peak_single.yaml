@@ -1,0 +1,6 @@
+# Pay-as-you-go: one morning-peak tube hop, zone 1 -> zone 2, no programmes.
+trips:
+  - time: "2026-04-07 08:15"   # Tuesday, inside the morning peak window
+    mode: tube
+    from: "King's Cross"       # zone 1
+    to: "Brixton"              # zone 2
