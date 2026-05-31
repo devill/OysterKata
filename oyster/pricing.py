@@ -3,7 +3,7 @@
 This module is intentionally written in a moderately procedural "legacy" style:
 the rules are idiosyncratic and the code follows RULES.md step by step rather
 than over-abstracting. Phase 2b will layer loyalty programmes on top via the
-`programmes` seam in `compute_invoice` — see the LOYALTY SEAM comments below.
+`programmes` seam in `price_invoice` — see the LOYALTY SEAM comments below.
 """
 
 from __future__ import annotations
@@ -362,6 +362,35 @@ def compute_invoice(
 ) -> Invoice:
     """Compute an invoice for one customer over a billing period.
 
+    Thin wrapper: fetches the customer's trips from the external trip service and
+    delegates to `price_invoice`, which does the pricing on plain data.
+    """
+    trips = services.trips.trips_for(customer.id, period)
+    return price_invoice(
+        customer,
+        period,
+        trips,
+        stations=services.stations,
+        fares=services.fares,
+        bank_holidays=services.bank_holidays,
+        programmes=programmes,
+        _compute_upsells=_compute_upsells,
+    )
+
+
+def price_invoice(
+    customer: Customer,
+    period: BillingPeriod,
+    trips: list[Trip],
+    *,
+    stations: StationRegistry,
+    fares: FareTable,
+    bank_holidays: BankHolidayService,
+    programmes: set[Programme] | None = None,
+    _compute_upsells: bool = True,
+) -> Invoice:
+    """Compute an invoice from plain trip data over a billing period.
+
     `programmes=None` uses `customer.enrolled` (the ACTUAL invoice). Passing an
     explicit programme set re-prices "as if enrolled in exactly that set", which
     upsell computation relies on. `_compute_upsells` is an internal recursion
@@ -373,18 +402,15 @@ def compute_invoice(
     """
     if programmes is None:
         programmes = set(customer.enrolled)
-    fares = services.fares
-
-    trips = services.trips.trips_for(customer.id, period)
 
     # 1. Price every leg's single fare (rail tie-break, bus flat) in time order.
     priced: list[_PricedLeg] = []
     for trip in trips:
-        peak = _is_peak(trip.touch_in, services.bank_holidays)
+        peak = _is_peak(trip.touch_in, bank_holidays)
         if trip.mode.is_rail_type:
-            priced.append(_price_rail_leg(trip, peak, services.stations, services.fares))
+            priced.append(_price_rail_leg(trip, peak, stations, fares))
         else:
-            priced.append(_price_flat_leg(trip, peak, services.fares))
+            priced.append(_price_flat_leg(trip, peak, fares))
 
     rail_legs = [leg for leg in priced if leg.pool == "rail"]
     bus_legs = [leg for leg in priced if leg.pool == "bus"]
@@ -402,7 +428,7 @@ def compute_invoice(
         commuter_club_fee = money(customer.commuter_club_fee)
 
     # 4. Hopper on bus/tram taps, before capping (RULES §4).
-    _apply_hopper(bus_legs, services.fares)
+    _apply_hopper(bus_legs, fares)
 
     # 5. Capping per pool (RULES §6). commuter-club in-band legs bypass capping.
     rail_band = _rail_band(rail_legs)
@@ -477,7 +503,16 @@ def compute_invoice(
 
     upsells: list[Upsell] = []
     if _compute_upsells and programmes == set(customer.enrolled):
-        upsells = _compute_upsell_list(customer, period, services, grand_total, priced)
+        upsells = _compute_upsell_list(
+            customer,
+            period,
+            trips,
+            stations=stations,
+            fares=fares,
+            bank_holidays=bank_holidays,
+            actual_grand_total=grand_total,
+            priced=priced,
+        )
 
     return Invoice(
         customer_id=customer.id,
@@ -497,7 +532,11 @@ def compute_invoice(
 def _compute_upsell_list(
     customer: Customer,
     period: BillingPeriod,
-    services: Services,
+    trips: list[Trip],
+    *,
+    stations: StationRegistry,
+    fares: FareTable,
+    bank_holidays: BankHolidayService,
     actual_grand_total: Decimal,
     priced: list[_PricedLeg],
 ) -> list[Upsell]:
@@ -521,11 +560,14 @@ def _compute_upsell_list(
     ):
         if programme not in eligible:
             continue
-        upsell_customer = _customer_for_upsell(customer, programme, priced, services)
-        re_run = compute_invoice(
-            upsell_customer,
-            period,
-            services,
+        upsell_customer = _customer_for_upsell(customer, programme, priced, fares)
+        re_run = price_invoice(
+            customer=upsell_customer,
+            period=period,
+            trips=trips,
+            stations=stations,
+            fares=fares,
+            bank_holidays=bank_holidays,
             programmes=set(customer.enrolled) | {programme},
             _compute_upsells=False,
         )
@@ -561,7 +603,7 @@ def _customer_for_upsell(
     customer: Customer,
     programme: Programme,
     priced: list[_PricedLeg],
-    services: Services,
+    fares: FareTable,
 ) -> Customer:
     """Return the customer to re-price for an upsell run.
 
@@ -580,5 +622,5 @@ def _customer_for_upsell(
     else:
         high = int(band_label.split("-")[1])
         offered_band = (1, high)
-    fee = services.fares.commuter_club_fee(band_label)
+    fee = fares.commuter_club_fee(band_label)
     return replace(customer, commuter_club_band=offered_band, commuter_club_fee=fee)
