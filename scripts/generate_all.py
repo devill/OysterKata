@@ -19,10 +19,10 @@ sys.path.insert(0, str(ROOT))
 from oyster.generator import generate_invoice_html, invoice_to_context  # noqa: E402
 from oyster.model import BillingPeriod  # noqa: E402
 from oyster.pricing import Services, compute_invoice  # noqa: E402
-from oyster.services.bank_holidays import BankHolidayService  # noqa: E402
+from oyster.rules.bank_holidays import BankHolidayService  # noqa: E402
+from oyster.rules.fare_table import FareTable  # noqa: E402
+from oyster.rules.station_registry import StationRegistry  # noqa: E402
 from oyster.services.customer_directory import CustomerDirectory  # noqa: E402
-from oyster.services.fare_table import FareTable  # noqa: E402
-from oyster.services.station_registry import StationRegistry  # noqa: E402
 from oyster.services.trip_service import TripService  # noqa: E402
 
 _PERIOD = BillingPeriod(2026, 4)

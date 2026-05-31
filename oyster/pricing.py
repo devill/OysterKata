@@ -14,10 +14,10 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
 from oyster.model import BillingPeriod, Customer, Mode, Programme, Trip
-from oyster.services.bank_holidays import BankHolidayService
+from oyster.rules.bank_holidays import BankHolidayService
+from oyster.rules.fare_table import FareTable
+from oyster.rules.station_registry import StationRegistry
 from oyster.services.customer_directory import CustomerDirectory
-from oyster.services.fare_table import FareTable
-from oyster.services.station_registry import StationRegistry
 from oyster.services.trip_service import TripService
 
 _CENT = Decimal("0.01")

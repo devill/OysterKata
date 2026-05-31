@@ -1,3 +1,5 @@
+"""Deterministic reference data (part of the system under test, not an external service)."""
+
 from __future__ import annotations
 
 from datetime import date
