@@ -4,6 +4,32 @@ This legacy like app prices a month of London Oyster card journeys and renders a
 
 Your task is to test it using [Constrained Tests](https://lexler.github.io/augmented-coding-patterns/patterns/constrained-tests/)
 
+## Install
+
+Requires Python 3.11+. The app itself has no third-party runtime dependencies,
+so a checkout is enough to run it. The test suite needs `pytest` and
+`approvaltests`.
+
+Using [uv](https://docs.astral.sh/uv/) (a `uv.lock` is checked in):
+
+```bash
+uv sync --extra test   # creates .venv and installs the test dependencies
+```
+
+Or with a plain virtual environment and pip:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e ".[test]"          # omit [test] if you only want to run the app
+```
+
+Run the tests with:
+
+```bash
+pytest
+```
+
 ## Running it
 
 Requires only Python 3.11+ (no third-party dependencies).
