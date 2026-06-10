@@ -194,7 +194,9 @@ def _rail_band(rail_legs: list[_PricedLeg]) -> str:
     if not includes_zone1:
         return "outer"
     max_zone = max(z for leg in rail_legs for z in leg.chosen_zones)
-    return f"Z1-{max_zone}"
+    # Zone-1-only journeys have no separate cap; they fall under the Z1-2
+    # floor (human-requested fix — there is no "Z1-1" cap band).
+    return f"Z1-{max(max_zone, 2)}"
 
 
 def _allocate_window(charges: list[Decimal], cap: Decimal) -> list[Decimal]:
