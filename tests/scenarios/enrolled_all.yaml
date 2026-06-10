@@ -1,0 +1,5 @@
+enrolled: [railcard, zone_resident, commuter_club]
+commuter_club_band: [1, 6]
+commuter_club_fee: 260.0
+trips:
+  - { at: "2026-04-07 08:00", mode: tube, from: "King's Cross", to: "Camden Town" }

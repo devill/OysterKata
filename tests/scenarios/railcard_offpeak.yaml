@@ -1,0 +1,3 @@
+enrolled: [railcard]
+trips:
+  - { at: "2026-04-07 11:00", mode: tube, from: "King's Cross", to: "Camden Town" }

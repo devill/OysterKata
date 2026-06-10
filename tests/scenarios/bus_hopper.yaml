@@ -1,0 +1,4 @@
+trips:
+  - { at: "2026-04-07 09:00", mode: bus, from: "Brixton" }
+  - { at: "2026-04-07 09:40", mode: bus, from: "Brixton" }
+  - { at: "2026-04-07 10:50", mode: bus, from: "Brixton" }

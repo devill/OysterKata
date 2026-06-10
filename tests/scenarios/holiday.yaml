@@ -1,0 +1,2 @@
+trips:
+  - { at: "2026-04-03 08:00", mode: tube, from: "King's Cross", to: "Camden Town" }

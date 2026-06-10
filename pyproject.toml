@@ -8,8 +8,26 @@ requires-python = ">=3.11"
 test = [
     "pytest>=8",
     "approvaltests>=14",
+    "pyyaml>=6",
+    "pytest-cov>=5",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+# Branch coverage is gated only on the business logic reachable through the
+# data-in seam (render_invoice_html). The I/O seams below query the external
+# services and cannot be run from a constrained test, so they are excluded
+# rather than left as permanent coverage gaps.
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+exclude_also = [
+    "def compute_invoice",
+    "def generate_invoice_html",
+    "def default_services",
+    "class Services",
+    "def _commuter_club_band_label",  # dead code (uncalled) — flagged for removal, see branch_covered work
+]

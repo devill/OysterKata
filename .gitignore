@@ -3,6 +3,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Approval-test received files (approved files ARE committed)
+*.received.html
+tests/approved/*.received.html
+
+# Coverage data
+.coverage
+
 # IDE
 .idea/
 .vscode/
