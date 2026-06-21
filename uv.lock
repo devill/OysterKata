@@ -13,16 +13,19 @@ wheels = [
 
 [[package]]
 name = "approval-utilities"
-version = "18.0.5"
+version = "18.1.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ac/27/ba7f1c61d87335279065ad780e2869d6c043ed9ac00ef2db69876b98d8c8/approval_utilities-18.0.5.tar.gz", hash = "sha256:e1a74f1dac8006508a1c0df17137da11e33def718b8989b2e523ff4e29191d4f", size = 37583, upload-time = "2026-05-17T16:56:58.518Z" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5e/c2/4d69e9536f65b568edf60ebcd3f86a92f6270413315a9b0aa8cf4e4adab4/approval_utilities-18.1.1.tar.gz", hash = "sha256:3109770951a2bb3715900f9b9f4fcaf2960d33a60c87e6b38b96f90d56de12ae", size = 37982, upload-time = "2026-06-15T19:02:43.637Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/35/21c9a778a284c202aa23d3c4291f687cc2f34d56f221b4db63814541ee4a/approval_utilities-18.0.5-py3-none-any.whl", hash = "sha256:aaaf58a5f2c8cf6e0b06b91a49a72e3e25839ae16214e12b2ac2d6994702812c", size = 19792, upload-time = "2026-05-17T16:56:57.659Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/d5/2c9d6a8d4a39885ede9b1bf4363dfe2f7f5186c195b948b8d3fa0d6b4368/approval_utilities-18.1.1-py3-none-any.whl", hash = "sha256:2069c7caef07d73a817a829b5c6d21d710b338cce85ff6f133933936f8345b3e", size = 19815, upload-time = "2026-06-15T19:02:42.579Z" },
 ]
 
 [[package]]
 name = "approvaltests"
-version = "18.0.5"
+version = "18.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "allpairspy" },
@@ -35,9 +38,9 @@ dependencies = [
     { name = "testfixtures" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/52/bbbf44cd6c4b3a38a54d64cbc641e56cdceb1c4863044ca6762ac64e94ce/approvaltests-18.0.5.tar.gz", hash = "sha256:29bdbac1f47ecab1d543fb8920b35311dcc771f5ac869c13ed450c954e207c47", size = 66298, upload-time = "2026-05-17T16:57:04.788Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/7b/5280f357ff6187ec0ece122a1185e9115298923c3a603315ce8748097269/approvaltests-18.1.1.tar.gz", hash = "sha256:6dc1b2d313e51133e2558e25fafe7d0017888c097e0bc4e3cc82c5f83120b48a", size = 67212, upload-time = "2026-06-15T19:02:49.452Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bb/ea/7ac0e6e1894ec4b1d14432ae310ed2742cb2011c0d0b0f7437fdca3c0711/approvaltests-18.0.5-py3-none-any.whl", hash = "sha256:ca78572b9b4ee83d8322a7b0651a541b52468669038de93e4ed8b64a6e58496d", size = 66422, upload-time = "2026-05-17T16:57:03.134Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/95/c027b47771241fe0fc7121cfdfed6b413413ba65b28b880675fbbc5258b3/approvaltests-18.1.1-py3-none-any.whl", hash = "sha256:cc399979396516c54874c709a8ecb5036d6b35cbca08552a0a172557c1360b48", size = 67734, upload-time = "2026-06-15T19:02:48.149Z" },
 ]
 
 [[package]]
@@ -212,7 +215,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "approvaltests", marker = "extra == 'test'", specifier = ">=14" },
+    { name = "approvaltests", marker = "extra == 'test'", specifier = ">=18.1.1" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.1.0" },
 ]
 provides-extras = ["test"]
@@ -295,11 +298,11 @@ wheels = [
 
 [[package]]
 name = "testfixtures"
-version = "12.0.0"
+version = "11.0.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6a/7e/d2be2e9c9367bcf13b2aab7defd6c075e4f87c3741d18abadf413efbb5c5/testfixtures-12.0.0.tar.gz", hash = "sha256:95f3a7824e104be2f6673fea59f9260ed6972b28064240e317c771fc13ab4268", size = 177327, upload-time = "2026-05-23T08:32:48.816Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/b4/8f36d45d9fc00a24dcfeb131618cdfbfe77dfedd88c06a80d17f51f49fef/testfixtures-11.0.0.tar.gz", hash = "sha256:06dfeb3792e06c4ea7217e14114391f6c7735c36e0a57e6f4641c6ae5d790ee7", size = 152532, upload-time = "2026-03-09T13:57:58.683Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/cd/cbee7ae737c5f3cce2eb762b152d1e2053c2c2d4f0ebb8dc663a71168110/testfixtures-12.0.0-py3-none-any.whl", hash = "sha256:db6ae636369cd31f40899344a2dfa9e50da0e0e80b63128f82fbf60e9a118f2b", size = 61390, upload-time = "2026-05-23T08:32:46.875Z" },
+    { url = "https://files.pythonhosted.org/packages/40/05/598b83e009299694299047ad4d21a7d4c3ca13c2e6ff2d5c26623bd59c97/testfixtures-11.0.0-py3-none-any.whl", hash = "sha256:371385596e87388469f2635decba00619cc416cd034671ecde8a059f6625634e", size = 51639, upload-time = "2026-03-09T13:57:57.451Z" },
 ]
 
 [[package]]
