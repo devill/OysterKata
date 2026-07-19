@@ -16,18 +16,10 @@ test = [
 testpaths = ["tests"]
 pythonpath = ["."]
 
-# Branch coverage is gated only on the business logic reachable through the
-# data-in seam (render_invoice_html). The I/O seams below query the external
-# services and cannot be run from a constrained test, so they are excluded
-# rather than left as permanent coverage gaps.
+# Branch coverage is gated on the business logic reachable through the data-in
+# seam (render_invoice_html). All external-service access now lives in the
+# entry points (oyster/cli.py, scripts/), which cannot be run from a constrained
+# test, so the library itself needs no per-symbol coverage exclusions.
 [tool.coverage.run]
 branch = true
-
-[tool.coverage.report]
-exclude_also = [
-    "def compute_invoice",
-    "def generate_invoice_html",
-    "def default_services",
-    "class Services",
-    "def _commuter_club_band_label",  # dead code (uncalled) — flagged for removal, see branch_covered work
-]
+omit = ["oyster/cli.py"]
