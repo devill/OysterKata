@@ -37,7 +37,7 @@ def _is_peak(touch_in: datetime, rules: PricingRules) -> bool:
     return False
 
 
-# --- Rail-type single fares (RULES §1, §5) -------------------------------------
+# --- Single fares (RULES §1, §4, §5) -------------------------------------------
 
 
 def _zone_label(low: int, high: int) -> str:
@@ -46,9 +46,14 @@ def _zone_label(low: int, high: int) -> str:
     return f"{low}–{high}"  # en dash, e.g. "1–2"
 
 
-def _price_rail_leg(
-    trip: Trip, peak: bool, rules: PricingRules
-) -> PricedLeg:
+def _price_leg(trip: Trip, rules: PricingRules) -> PricedLeg:
+    peak = _is_peak(trip.touch_in, rules)
+    if trip.mode.is_rail_type:
+        return _price_rail_leg(trip, peak, rules)
+    return _price_flat_leg(trip, peak, rules)
+
+
+def _price_rail_leg(trip: Trip, peak: bool, rules: PricingRules) -> PricedLeg:
     """Price a rail-type leg, applying the boundary-station tie-break (RULES §1).
 
     A boundary station maps to two zones. We evaluate the leg under every
@@ -83,9 +88,6 @@ def _price_rail_leg(
                 best = candidate
     assert best is not None
     return best
-
-
-# --- Bus/tram flat fares + Hopper (RULES §4) -----------------------------------
 
 
 def _price_flat_leg(trip: Trip, peak: bool, rules: PricingRules) -> PricedLeg:
@@ -318,16 +320,9 @@ def price_invoice(
         programmes = set(customer.enrolled)
 
     # 1. Price every leg's single fare (rail tie-break, bus flat) in time order.
-    priced: list[PricedLeg] = []
-    for trip in trips:
-        peak = _is_peak(trip.touch_in, rules)
-        if trip.mode.is_rail_type:
-            priced.append(_price_rail_leg(trip, peak, rules))
-        else:
-            priced.append(_price_flat_leg(trip, peak, rules))
-
-    rail_legs = [leg for leg in priced if leg.pool == "rail"]
-    bus_legs = [leg for leg in priced if leg.pool == "bus"]
+    legs = [_price_leg(trip, rules) for trip in trips]
+    rail_legs = [leg for leg in legs if leg.pool == "rail"]
+    bus_legs = [leg for leg in legs if leg.pool == "bus"]
 
     # 2. Per-leg loyalty discounts (zone_resident then railcard), before capping.
     _apply_per_leg_discounts(rail_legs, programmes, customer.home_zone)
@@ -368,7 +363,7 @@ def price_invoice(
 
     # 6. Assemble invoice lines in original time order. single_fare stays full.
     lines: list[InvoiceLine] = []
-    for leg in priced:
+    for leg in legs:
         lines.append(
             InvoiceLine(
                 date=leg.trip.touch_in.date(),
@@ -423,7 +418,7 @@ def price_invoice(
             trips,
             rules=rules,
             actual_grand_total=grand_total,
-            priced=priced,
+            priced=legs,
         )
 
     return Invoice(
