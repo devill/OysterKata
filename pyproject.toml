@@ -29,5 +29,4 @@ exclude_also = [
     "def generate_invoice_html",
     "def default_services",
     "class Services",
-    "def _commuter_club_band_label",  # dead code (uncalled) — flagged for removal, see branch_covered work
 ]

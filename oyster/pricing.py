@@ -330,13 +330,6 @@ def _fraction_off_peak(priced: list[_PricedLeg]) -> Decimal:
     return Decimal(off_peak) / Decimal(len(priced))
 
 
-def _commuter_club_band_label(low: int, high: int) -> str:
-    """Map a numeric band to a FareTable band label (RULES §6a / §7a)."""
-    if low == 1:
-        return f"Z1-{high}"
-    return "outer"
-
-
 # --- Engine entry point --------------------------------------------------------
 
 
