@@ -8,6 +8,7 @@ run is reproducible from its arguments alone.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Hashable
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -18,6 +19,9 @@ from oyster.money import Money
 from oyster.priced_leg import PricedLeg
 from oyster.programmes import ProgrammeDiscounts, discounts_for
 from oyster.rules import PricingRules
+
+_CAP_LEVELS = ("daily", "weekly", "monthly")
+
 
 # --- Peak / off-peak (RULES §3) ------------------------------------------------
 
@@ -177,67 +181,69 @@ def _iso_week_key(d: date) -> tuple[int, int]:
     return (iso.year, iso.week)
 
 
-def _cap_pool(
+def _day_of(leg: PricedLeg) -> Hashable:
+    return leg.trip.touch_in.date()
+
+
+def _week_of(leg: PricedLeg) -> Hashable:
+    return _iso_week_key(leg.trip.touch_in.date())
+
+
+def _period_of(leg: PricedLeg) -> Hashable:
+    return "period"  # the whole billing period is a single window
+
+
+def _allocate_by_window(
     legs: list[PricedLeg],
-    daily_cap: Money,
-    weekly_cap: Money,
-    monthly_cap: Money,
-) -> tuple[dict[int, Money], str | None]:
+    window_of: Callable[[PricedLeg], Hashable],
+    charges: list[Money],
+    cap: Money,
+) -> list[Money]:
+    """Cap each window independently, returning charges aligned with `legs`."""
+    windows: dict[Hashable, list[int]] = {}
+    for index, leg in enumerate(legs):
+        windows.setdefault(window_of(leg), []).append(index)
+    allocated = list(charges)
+    for indexes in windows.values():
+        window_charges = _allocate_window([charges[index] for index in indexes], cap)
+        for index, charge in zip(indexes, window_charges):
+            allocated[index] = charge
+    return allocated
+
+
+def _cap_pool(legs: list[PricedLeg], caps: dict[str, Money]) -> str | None:
     """Run nested daily/weekly/monthly capping for one pool (RULES §6b–d).
 
     `legs` must be chronologically ordered and already carry pre_cap_charge
-    (post-hopper for bus). They are already period-filtered by the trip service.
-    Returns the final per-leg charge keyed by leg id(), plus the most aggressive
-    level that actually reduced the pool total.
+    (post-hopper for bus). They are already period-filtered by the caller. Each
+    level caps the previous level's charges over a wider window. Sets each leg's
+    final `charged` and returns the most aggressive level that actually reduced
+    the pool total.
     """
-    final: dict[int, Money] = {}
+    uncapped = [leg.pre_cap_charge for leg in legs]
+    daily = _allocate_by_window(legs, _day_of, uncapped, caps["daily"])
+    weekly = _allocate_by_window(legs, _week_of, daily, caps["weekly"])
+    monthly = _allocate_by_window(legs, _period_of, weekly, caps["monthly"])
+    for leg, charge in zip(legs, monthly):
+        leg.charged = charge
+    return _bound_level([uncapped, daily, weekly, monthly])
 
-    # Daily: cap each calendar date independently.
-    by_day: dict[date, list[PricedLeg]] = {}
-    for leg in legs:
-        by_day.setdefault(leg.trip.touch_in.date(), []).append(leg)
-    daily_charge: dict[int, Money] = {}
-    for day_legs in by_day.values():
-        allocated = _allocate_window([leg.pre_cap_charge for leg in day_legs], daily_cap)
-        for leg, charge in zip(day_legs, allocated):
-            daily_charge[id(leg)] = charge
 
-    # Weekly: cap each Mon–Sun week, operating on the daily-capped charges.
-    by_week: dict[tuple[int, int], list[PricedLeg]] = {}
-    for leg in legs:
-        by_week.setdefault(_iso_week_key(leg.trip.touch_in.date()), []).append(leg)
-    weekly_charge: dict[int, Money] = {}
-    for week_legs in by_week.values():
-        allocated = _allocate_window([daily_charge[id(leg)] for leg in week_legs], weekly_cap)
-        for leg, charge in zip(week_legs, allocated):
-            weekly_charge[id(leg)] = charge
-
-    # Monthly: cap the whole billing period, operating on the weekly-capped charges.
-    monthly_allocated = _allocate_window([weekly_charge[id(leg)] for leg in legs], monthly_cap)
-    for leg, charge in zip(legs, monthly_allocated):
-        final[id(leg)] = charge
-
-    # Determine which level actually reduced the pool total (most aggressive wins).
-    uncapped_sum = Money.total(leg.pre_cap_charge for leg in legs)
-    daily_sum = Money.total(daily_charge.values())
-    weekly_sum = Money.total(weekly_charge.values())
-    monthly_sum = Money.total(final.values())
-    bound_level: str | None = None
-    if daily_sum < uncapped_sum:
-        bound_level = "daily"
-    if weekly_sum < daily_sum:
-        bound_level = "weekly"
-    if monthly_sum < weekly_sum:
-        bound_level = "monthly"
-
-    return final, bound_level
+def _bound_level(stages: list[list[Money]]) -> str | None:
+    """The most aggressive cap level that reduced the pool total, if any."""
+    totals = [Money.total(stage) for stage in stages]
+    bound: str | None = None
+    for level, total, previous in zip(_CAP_LEVELS, totals[1:], totals):
+        if total < previous:
+            bound = level
+    return bound
 
 
 def _rail_caps(rules: PricingRules, band: str, discounts: ProgrammeDiscounts) -> dict[str, Money]:
     """Rail caps for a run, after any programme reduction (RULES §6a)."""
     return {
         level: discounts.discounted_cap(Money.of(rules.fares.rail_cap(band, level)))
-        for level in ("daily", "weekly", "monthly")
+        for level in _CAP_LEVELS
     }
 
 
@@ -290,24 +296,15 @@ def price_invoice(
 
     # 4. Capping per pool (RULES §6). commuter-club in-band legs bypass capping.
     rail_band = _rail_band(rail_legs)
-    rail_caps = _rail_caps(rules, rail_band, discounts)
-    capped_rail_legs = [leg for leg in rail_legs if not leg.bypass_cap]
-    rail_final, rail_bound = _cap_pool(
-        capped_rail_legs,
-        rail_caps["daily"],
-        rail_caps["weekly"],
-        rail_caps["monthly"],
+    rail_bound = _cap_pool(
+        [leg for leg in rail_legs if not leg.bypass_cap],
+        _rail_caps(rules, rail_band, discounts),
     )
     for leg in rail_legs:
         if leg.bypass_cap:
-            rail_final[id(leg)] = Money.ZERO
-    bus_final, bus_bound = _cap_pool(
-        bus_legs,
-        Money.of(rules.fares.bus_cap("daily")),
-        Money.of(rules.fares.bus_cap("weekly")),
-        Money.of(rules.fares.bus_cap("monthly")),
-    )
-    final_charge = {**rail_final, **bus_final}
+            leg.charged = Money.ZERO
+    bus_caps = {level: Money.of(rules.fares.bus_cap(level)) for level in _CAP_LEVELS}
+    bus_bound = _cap_pool(bus_legs, bus_caps)
 
     # 5. Assemble invoice lines in original time order. single_fare stays full.
     lines: list[InvoiceLine] = []
@@ -321,14 +318,14 @@ def price_invoice(
                 zones=leg.zones_label,
                 peak=leg.peak,
                 single_fare=leg.single_fare,
-                charged=final_charge[id(leg)],
+                charged=leg.charged,
             )
         )
 
     rail_uncapped = Money.total(leg.pre_cap_charge for leg in rail_legs)
-    rail_final_sum = Money.total(final_charge[id(leg)] for leg in rail_legs)
+    rail_final_sum = Money.total(leg.charged for leg in rail_legs)
     bus_uncapped = Money.total(leg.pre_cap_charge for leg in bus_legs)
-    bus_final_sum = Money.total(bus_final.values())
+    bus_final_sum = Money.total(leg.charged for leg in bus_legs)
 
     caps = [
         CapResult(

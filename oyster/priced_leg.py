@@ -10,7 +10,7 @@ from oyster.money import Money
 
 @dataclass
 class PricedLeg:
-    """One tap after single-fare pricing, before capping."""
+    """One tap after single-fare pricing, carrying each phase's running charge."""
 
     trip: Trip
     pool: str  # "rail" or "bus"
@@ -23,3 +23,4 @@ class PricedLeg:
     single_fare: Money  # full fare before any loyalty discount / hopper / cap
     pre_cap_charge: Money  # post-loyalty-discount + post-hopper charge fed to capping
     bypass_cap: bool = False  # commuter-club in-band rail legs are charged £0, skip capping
+    charged: Money = Money.ZERO  # final amount billed, set by the cap engine
