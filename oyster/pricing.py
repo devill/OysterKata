@@ -8,13 +8,14 @@ run is reproducible from its arguments alone.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
 from oyster.model import BillingPeriod, Customer, Mode, Programme, Trip
 from oyster.money import Money
+from oyster.priced_leg import PricedLeg
 from oyster.rules import PricingRules
 
 # --- Peak / off-peak (RULES §3) ------------------------------------------------
@@ -39,23 +40,6 @@ def _is_peak(touch_in: datetime, rules: PricingRules) -> bool:
 # --- Rail-type single fares (RULES §1, §5) -------------------------------------
 
 
-@dataclass
-class _PricedLeg:
-    """A single tap after single-fare pricing, before capping."""
-
-    trip: Trip
-    pool: str  # "rail" or "bus"
-    peak: bool
-    route: str
-    zones_label: str
-    chosen_zones: tuple[int, ...]  # the chosen endpoint zones (rail only)
-    includes_zone1: bool
-    start_zones: tuple[int, ...]  # zones of the start station (rail only)
-    single_fare: Money  # full fare before any loyalty discount / hopper / cap
-    pre_cap_charge: Money  # post-loyalty-discount + post-hopper charge fed to capping
-    bypass_cap: bool = False  # commuter-club in-band rail legs are charged £0, skip capping
-
-
 def _zone_label(low: int, high: int) -> str:
     if low == high:
         return str(low)
@@ -64,7 +48,7 @@ def _zone_label(low: int, high: int) -> str:
 
 def _price_rail_leg(
     trip: Trip, peak: bool, rules: PricingRules
-) -> _PricedLeg:
+) -> PricedLeg:
     """Price a rail-type leg, applying the boundary-station tie-break (RULES §1).
 
     A boundary station maps to two zones. We evaluate the leg under every
@@ -74,7 +58,7 @@ def _price_rail_leg(
     from_zones = rules.stations.zones_for(trip.from_station)
     to_zones = rules.stations.zones_for(trip.to_station)
 
-    best: _PricedLeg | None = None
+    best: PricedLeg | None = None
     for fz in from_zones:
         for tz in to_zones:
             chosen = (fz, tz)
@@ -83,7 +67,7 @@ def _price_rail_leg(
             zones_spanned = high - low + 1
             includes_zone1 = low == 1
             fare = Money.of(rules.fares.rail_single(includes_zone1, zones_spanned, peak))
-            candidate = _PricedLeg(
+            candidate = PricedLeg(
                 trip=trip,
                 pool="rail",
                 peak=peak,
@@ -104,9 +88,9 @@ def _price_rail_leg(
 # --- Bus/tram flat fares + Hopper (RULES §4) -----------------------------------
 
 
-def _price_flat_leg(trip: Trip, peak: bool, rules: PricingRules) -> _PricedLeg:
+def _price_flat_leg(trip: Trip, peak: bool, rules: PricingRules) -> PricedLeg:
     fare = Money.of(rules.fares.flat_fare())
-    return _PricedLeg(
+    return PricedLeg(
         trip=trip,
         pool="bus",
         peak=peak,
@@ -120,7 +104,7 @@ def _price_flat_leg(trip: Trip, peak: bool, rules: PricingRules) -> _PricedLeg:
     )
 
 
-def _apply_hopper(bus_legs: list[_PricedLeg], rules: PricingRules) -> None:
+def _apply_hopper(bus_legs: list[PricedLeg], rules: PricingRules) -> None:
     """Zero out flat-fare taps inside a 60-minute hopper window (RULES §4).
 
     Taps are processed chronologically. A tap within the window of the window's
@@ -142,7 +126,7 @@ def _apply_hopper(bus_legs: list[_PricedLeg], rules: PricingRules) -> None:
 # --- Cap engine (RULES §6) -----------------------------------------------------
 
 
-def _rail_band(rail_legs: list[_PricedLeg]) -> str:
+def _rail_band(rail_legs: list[PricedLeg]) -> str:
     """Widest zone band touched by rail legs in the period (RULES §6a).
 
     If any rail leg's chosen zones include zone 1, band = Z1-N where N is the
@@ -191,7 +175,7 @@ def _iso_week_key(d: date) -> tuple[int, int]:
 
 
 def _cap_pool(
-    legs: list[_PricedLeg],
+    legs: list[PricedLeg],
     daily_cap: Money,
     weekly_cap: Money,
     monthly_cap: Money,
@@ -206,7 +190,7 @@ def _cap_pool(
     final: dict[int, Money] = {}
 
     # Daily: cap each calendar date independently.
-    by_day: dict[date, list[_PricedLeg]] = {}
+    by_day: dict[date, list[PricedLeg]] = {}
     for leg in legs:
         by_day.setdefault(leg.trip.touch_in.date(), []).append(leg)
     daily_charge: dict[int, Money] = {}
@@ -216,7 +200,7 @@ def _cap_pool(
             daily_charge[id(leg)] = charge
 
     # Weekly: cap each Mon–Sun week, operating on the daily-capped charges.
-    by_week: dict[tuple[int, int], list[_PricedLeg]] = {}
+    by_week: dict[tuple[int, int], list[PricedLeg]] = {}
     for leg in legs:
         by_week.setdefault(_iso_week_key(leg.trip.touch_in.date()), []).append(leg)
     weekly_charge: dict[int, Money] = {}
@@ -254,7 +238,7 @@ _GREEN_MULTIPLIER = Decimal("0.95")  # green_traveller: −5%
 
 
 def _apply_per_leg_discounts(
-    rail_legs: list[_PricedLeg], programmes: set[Programme], home_zone: int
+    rail_legs: list[PricedLeg], programmes: set[Programme], home_zone: int
 ) -> None:
     """Apply zone_resident then railcard to rail single fares, before capping.
 
@@ -275,7 +259,7 @@ def _apply_per_leg_discounts(
         leg.pre_cap_charge = leg.single_fare.times(*ratios)
 
 
-def _apply_commuter_club(rail_legs: list[_PricedLeg], band: tuple[int, int]) -> None:
+def _apply_commuter_club(rail_legs: list[PricedLeg], band: tuple[int, int]) -> None:
     """Zero in-band rail legs and mark them to bypass capping (RULES §7a).
 
     A leg is in-band when all its chosen zones fall within the subscribed band.
@@ -299,7 +283,7 @@ def _reduced_rail_caps(rules: PricingRules, band: str, railcard: bool) -> dict[s
     return caps
 
 
-def _fraction_off_peak(priced: list[_PricedLeg]) -> Decimal:
+def _fraction_off_peak(priced: list[PricedLeg]) -> Decimal:
     """Share of all taps in the period that are off-peak (RULES §7)."""
     if not priced:
         return Decimal(0)
@@ -334,7 +318,7 @@ def price_invoice(
         programmes = set(customer.enrolled)
 
     # 1. Price every leg's single fare (rail tie-break, bus flat) in time order.
-    priced: list[_PricedLeg] = []
+    priced: list[PricedLeg] = []
     for trip in trips:
         peak = _is_peak(trip.touch_in, rules)
         if trip.mode.is_rail_type:
@@ -464,7 +448,7 @@ def _compute_upsell_list(
     *,
     rules: PricingRules,
     actual_grand_total: Money,
-    priced: list[_PricedLeg],
+    priced: list[PricedLeg],
 ) -> list[Upsell]:
     """Build the single highest-saving upsell for the ACTUAL invoice (RULES §7b).
 
@@ -510,7 +494,7 @@ def _compute_upsell_list(
 
 
 def _eligible_upsell_programmes(
-    customer: Customer, priced: list[_PricedLeg]
+    customer: Customer, priced: list[PricedLeg]
 ) -> set[Programme]:
     enrolled = set(customer.enrolled)
     eligible: set[Programme] = set()
@@ -526,7 +510,7 @@ def _eligible_upsell_programmes(
 def _customer_for_upsell(
     customer: Customer,
     programme: Programme,
-    priced: list[_PricedLeg],
+    priced: list[PricedLeg],
     rules: PricingRules,
 ) -> Customer:
     """Return the customer to re-price for an upsell run.
