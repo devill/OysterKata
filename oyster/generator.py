@@ -1,27 +1,22 @@
-"""Adapt an Invoice into the template context and orchestrate generation.
+"""Adapt an Invoice into the template context and render it.
 
-Three seams live here, kept apart:
+Two seams live here, kept apart:
 - `invoice_to_context` is a pure adapter: Invoice -> the context dict that
-  `invoice.html.hbs` consumes (the exact shape documented in render_demo.py).
+  `invoice.html.hbs` consumes.
 - `render_invoice_html` is the data-in renderer: customer + plain trips in,
-  HTML out, with no external-service access.
-- `generate_invoice_html` is the I/O orchestrator: it queries the services
-  (RULES §9) for the customer and trips, then delegates to `render_invoice_html`.
+  HTML out, with no external-service access. Callers resolve the customer and
+  their trips from the upstream systems (RULES §9) before calling it.
 """
 
 from __future__ import annotations
 
-from decimal import Decimal
 from pathlib import Path
 
 from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
 from oyster.model import BillingPeriod, Customer, Programme, Trip
+from oyster.money import Money
 from oyster.pricing import price_invoice
-from oyster.rules.bank_holidays import BankHolidayService
-from oyster.rules.fare_table import FareTable
-from oyster.rules.station_registry import StationRegistry
-from oyster.services.customer_directory import CustomerDirectory
-from oyster.services.trip_service import TripService
+from oyster.rules import PricingRules
 from oyster.template_engine import render_file
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "invoice.html.hbs"
@@ -43,10 +38,6 @@ _BOUND_LABELS: dict[str | None, str] = {
 }
 
 
-def _money(value: Decimal) -> str:
-    return f"£{value:.2f}"
-
-
 def _programme_label(programme: str) -> str:
     return _PROGRAMME_LABELS[programme]
 
@@ -59,8 +50,8 @@ def _line_context(line: InvoiceLine) -> dict:
         "route": line.route,
         "zones": line.zones,
         "peak_label": "Peak" if line.peak else "Off-peak",
-        "single_fare": _money(line.single_fare),
-        "charged": _money(line.charged),
+        "single_fare": str(line.single_fare),
+        "charged": str(line.charged),
         "discounted": line.charged < line.single_fare,
     }
 
@@ -70,7 +61,7 @@ def _cap_context(cap: CapResult) -> dict:
         "pool_label": "Rail" if cap.pool == "rail" else "Bus & Tram",
         "band": cap.band,
         "bound_label": _BOUND_LABELS[cap.bound_level],
-        "discount": _money(cap.discount),
+        "discount": str(cap.discount),
         "bound": cap.bound_level is not None,
     }
 
@@ -78,8 +69,8 @@ def _cap_context(cap: CapResult) -> dict:
 def _upsell_context(upsell: Upsell) -> dict:
     return {
         "programme_label": _programme_label(upsell.programme),
-        "would_have_paid": _money(upsell.would_have_paid),
-        "saving": _money(upsell.saving),
+        "would_have_paid": str(upsell.would_have_paid),
+        "saving": str(upsell.saving),
     }
 
 
@@ -92,14 +83,14 @@ def invoice_to_context(invoice: Invoice) -> dict:
         "enrolled": [_programme_label(p) for p in invoice.enrolled],
         "lines": [_line_context(line) for line in invoice.lines],
         "caps": [_cap_context(cap) for cap in invoice.caps],
-        "subtotal": _money(invoice.subtotal),
+        "subtotal": str(invoice.subtotal),
         "commuter_club_fee": (
-            _money(invoice.commuter_club_fee) if invoice.commuter_club_fee > 0 else None
+            str(invoice.commuter_club_fee) if invoice.commuter_club_fee > Money.ZERO else None
         ),
         "green_discount": (
-            _money(invoice.green_discount) if invoice.green_discount > 0 else None
+            str(invoice.green_discount) if invoice.green_discount > Money.ZERO else None
         ),
-        "grand_total": _money(invoice.grand_total),
+        "grand_total": str(invoice.grand_total),
         "upsells": [_upsell_context(upsell) for upsell in invoice.upsells],
     }
 
@@ -109,49 +100,12 @@ def render_invoice_html(
     period: BillingPeriod,
     trips: list[Trip],
     *,
-    stations: StationRegistry,
-    fares: FareTable,
-    holidays: BankHolidayService,
+    rules: PricingRules,
 ) -> str:
     """Price one customer's trips and render the invoice to HTML (data-in seam).
 
     Pure on its inputs: pricing, context adaptation and template rendering with
-    no external-service access. `generate_invoice_html` is the I/O wrapper.
+    no external-service access.
     """
-    invoice = price_invoice(
-        customer,
-        period,
-        trips,
-        stations=stations,
-        fares=fares,
-        bank_holidays=holidays,
-    )
-    context = invoice_to_context(invoice)
-    return render_file(_TEMPLATE_PATH, context)
-
-
-def generate_invoice_html(
-    customer_id: str,
-    period: BillingPeriod,
-    *,
-    customers: CustomerDirectory,
-    trips: TripService,
-    stations: StationRegistry,
-    fares: FareTable,
-    holidays: BankHolidayService,
-) -> str:
-    """Price one customer's invoice and render it to HTML.
-
-    The services are passed explicitly: this is the "queries multiple systems"
-    seam from RULES §9. `customer_id` + `period` in, HTML out.
-    """
-    customer = customers.get(customer_id)
-    customer_trips = trips.trips_for(customer_id, period)
-    return render_invoice_html(
-        customer,
-        period,
-        customer_trips,
-        stations=stations,
-        fares=fares,
-        holidays=holidays,
-    )
+    invoice = price_invoice(customer, period, trips, rules=rules)
+    return render_file(_TEMPLATE_PATH, invoice_to_context(invoice))

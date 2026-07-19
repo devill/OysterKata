@@ -8,13 +8,32 @@ caps, loyalty programmes and upsell offers.
 ## Layout
 
 - `oyster/model.py` — core domain types (`Customer`, `Trip`, `BillingPeriod`, …).
-- `oyster/pricing.py` — the pricing engine (`compute_invoice`).
+- `oyster/money.py` — the `Money` value object; all currency arithmetic and rounding.
+- `oyster/pricing.py` — the pricing engine (`price_invoice`).
+- `oyster/priced_leg.py` — `PricedLeg`, one tap as it flows through the pricing phases.
+- `oyster/programmes.py` — one discount strategy per loyalty programme.
+- `oyster/invoice_builder.py` — assembles a priced, capped period into an `Invoice`.
 - `oyster/generator.py` — adapts a priced invoice into template context and renders HTML.
 - `oyster/invoice.py` — the `Invoice` result types.
 - `oyster/template_engine.py` + `oyster/templates/` — HTML rendering.
 - `oyster/services/` — integrations with upstream systems (customer records, journey history).
-- `oyster/rules/` — fare / zone / calendar reference data.
+- `oyster/rules/` — fare / zone / calendar reference data, bundled as `PricingRules`.
 - `scripts/` — local demo entry points.
+
+## Architecture
+
+*(human-requested)* **Pricing depends on data, never on upstream services.**
+`oyster/pricing.py` and `oyster/generator.py` take an already-resolved
+`Customer` and `list[Trip]` plus the deterministic `PricingRules`. Only the
+entry points — `oyster/cli.py` and `scripts/` — may import `oyster/services/`,
+and they resolve that data before calling in. Nothing under `oyster/` other
+than those entry points may depend on `oyster/services/`.
+
+*(human-requested)* **Money never travels as a bare `Decimal` or `float`.**
+Raw fare values from `oyster/rules/` enter through `Money.of` and stay `Money`
+all the way out to the renderer, which is the only place that formats them.
+`Money.times` is the single rounding point: it applies every ratio and rounds
+to the penny once, so composed discounts never round twice.
 
 ## Running it
 
