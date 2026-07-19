@@ -108,5 +108,4 @@ def render_invoice_html(
     no external-service access.
     """
     invoice = price_invoice(customer, period, trips, rules=rules)
-    context = invoice_to_context(invoice)
-    return render_file(_TEMPLATE_PATH, context)
+    return render_file(_TEMPLATE_PATH, invoice_to_context(invoice))

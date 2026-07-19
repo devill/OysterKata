@@ -15,7 +15,7 @@ from decimal import Decimal
 
 from oyster.invoice import Invoice, Upsell
 from oyster.invoice_builder import CappedPool, InvoiceBuilder
-from oyster.model import BillingPeriod, Customer, Mode, Programme, Trip
+from oyster.model import BillingPeriod, Customer, Programme, Trip
 from oyster.money import Money
 from oyster.priced_leg import PricedLeg
 from oyster.programmes import ProgrammeDiscounts, discounts_for
@@ -142,10 +142,9 @@ def _rail_band(rail_legs: list[PricedLeg]) -> str:
     """
     if not rail_legs:
         return "outer"
-    includes_zone1 = any(leg.includes_zone1 for leg in rail_legs)
-    if not includes_zone1:
+    if not any(leg.includes_zone1 for leg in rail_legs):
         return "outer"
-    max_zone = max(z for leg in rail_legs for z in leg.chosen_zones)
+    max_zone = max(zone for leg in rail_legs for zone in leg.chosen_zones)
     # Zone-1-only journeys have no separate cap; they fall under the Z1-2
     # floor (human-requested fix — there is no "Z1-1" cap band).
     return f"Z1-{max(max_zone, 2)}"
@@ -166,8 +165,7 @@ def _allocate_window(charges: list[Money], cap: Money) -> list[Money]:
     for charge in charges:
         if capped:
             allocated.append(Money.ZERO)
-            continue
-        if running + charge <= cap:
+        elif running + charge <= cap:
             allocated.append(charge)
             running = running + charge
         else:
