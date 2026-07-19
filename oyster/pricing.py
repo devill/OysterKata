@@ -16,6 +16,7 @@ from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
 from oyster.model import BillingPeriod, Customer, Mode, Programme, Trip
 from oyster.money import Money
 from oyster.priced_leg import PricedLeg
+from oyster.programmes import ProgrammeDiscounts, discounts_for
 from oyster.rules import PricingRules
 
 # --- Peak / off-peak (RULES §3) ------------------------------------------------
@@ -232,57 +233,12 @@ def _cap_pool(
     return final, bound_level
 
 
-# --- Loyalty programmes (RULES §7, §7a, §7b) -----------------------------------
-
-_THIRD_MULTIPLIER = Decimal(2) / Decimal(3)  # railcard: −⅓ off
-_ZONE_RESIDENT_MULTIPLIER = Decimal("0.75")  # zone_resident: −25%
-_GREEN_MULTIPLIER = Decimal("0.95")  # green_traveller: −5%
-
-
-def _apply_per_leg_discounts(
-    rail_legs: list[PricedLeg], programmes: set[Programme], home_zone: int
-) -> None:
-    """Apply zone_resident then railcard to rail single fares, before capping.
-
-    Both may apply to the same leg; they compose as multipliers on the full
-    single fare. zone_resident discounts legs that START in the home zone (a
-    boundary start counts if home_zone is among its zones). railcard discounts
-    off-peak legs only. Mutates pre_cap_charge in place; single_fare is left as
-    the full undiscounted fare for display.
-    """
-    zone_resident = Programme.ZONE_RESIDENT in programmes
-    railcard = Programme.RAILCARD in programmes
-    for leg in rail_legs:
-        ratios = []
-        if zone_resident and home_zone in leg.start_zones:
-            ratios.append(_ZONE_RESIDENT_MULTIPLIER)
-        if railcard and not leg.peak:
-            ratios.append(_THIRD_MULTIPLIER)
-        leg.pre_cap_charge = leg.single_fare.times(*ratios)
-
-
-def _apply_commuter_club(rail_legs: list[PricedLeg], band: tuple[int, int]) -> None:
-    """Zero in-band rail legs and mark them to bypass capping (RULES §7a).
-
-    A leg is in-band when all its chosen zones fall within the subscribed band.
-    Out-of-band rail legs keep their (already-discounted) pre_cap_charge.
-    """
-    low, high = band
-    for leg in rail_legs:
-        if leg.chosen_zones and all(low <= z <= high for z in leg.chosen_zones):
-            leg.pre_cap_charge = Money.ZERO
-            leg.bypass_cap = True
-
-
-def _reduced_rail_caps(rules: PricingRules, band: str, railcard: bool) -> dict[str, Money]:
-    """Rail caps for a run, each reduced by ⅓ when railcard is active (RULES §6a)."""
-    caps = {
-        level: Money.of(rules.fares.rail_cap(band, level))
+def _rail_caps(rules: PricingRules, band: str, discounts: ProgrammeDiscounts) -> dict[str, Money]:
+    """Rail caps for a run, after any programme reduction (RULES §6a)."""
+    return {
+        level: discounts.discounted_cap(Money.of(rules.fares.rail_cap(band, level)))
         for level in ("daily", "weekly", "monthly")
     }
-    if railcard:
-        caps = {level: value.times(_THIRD_MULTIPLIER) for level, value in caps.items()}
-    return caps
 
 
 def _fraction_off_peak(priced: list[PricedLeg]) -> Decimal:
@@ -313,36 +269,28 @@ def price_invoice(
     guard: upsell re-runs never recurse into computing further upsells.
 
     Loyalty effects are applied in the order mandated by RULES §7b: per-leg
-    discounts (zone_resident then railcard) and commuter-club zeroing before
-    capping; railcard-reduced caps; then the green_traveller post-cap discount.
+    discounts and commuter-club waiving before capping; railcard-reduced caps;
+    then the green_traveller post-cap discount.
     """
     if programmes is None:
         programmes = set(customer.enrolled)
+    discounts = discounts_for(programmes, customer)
 
     # 1. Price every leg's single fare (rail tie-break, bus flat) in time order.
     legs = [_price_leg(trip, rules) for trip in trips]
     rail_legs = [leg for leg in legs if leg.pool == "rail"]
     bus_legs = [leg for leg in legs if leg.pool == "bus"]
 
-    # 2. Per-leg loyalty discounts (zone_resident then railcard), before capping.
-    _apply_per_leg_discounts(rail_legs, programmes, customer.home_zone)
+    # 2. Per-leg loyalty discounts, then commuter-club waiving, before capping.
+    _apply_leg_discounts(rail_legs, discounts)
+    _waive_in_band_legs(rail_legs, discounts)
 
-    # 3. commuter_club zeroes in-band rail legs and removes them from the rail pool.
-    commuter_club = Programme.COMMUTER_CLUB in programmes
-    commuter_club_fee = Money.ZERO
-    if commuter_club:
-        band = customer.commuter_club_band
-        assert band is not None, "commuter_club enrolment requires a band"
-        _apply_commuter_club(rail_legs, band)
-        commuter_club_fee = Money.of(customer.commuter_club_fee)
-
-    # 4. Hopper on bus/tram taps, before capping (RULES §4).
+    # 3. Hopper on bus/tram taps, also before capping (RULES §4).
     _apply_hopper(bus_legs, rules)
 
-    # 5. Capping per pool (RULES §6). commuter-club in-band legs bypass capping.
+    # 4. Capping per pool (RULES §6). commuter-club in-band legs bypass capping.
     rail_band = _rail_band(rail_legs)
-    railcard = Programme.RAILCARD in programmes
-    rail_caps = _reduced_rail_caps(rules, rail_band, railcard)
+    rail_caps = _rail_caps(rules, rail_band, discounts)
     capped_rail_legs = [leg for leg in rail_legs if not leg.bypass_cap]
     rail_final, rail_bound = _cap_pool(
         capped_rail_legs,
@@ -361,7 +309,7 @@ def price_invoice(
     )
     final_charge = {**rail_final, **bus_final}
 
-    # 6. Assemble invoice lines in original time order. single_fare stays full.
+    # 5. Assemble invoice lines in original time order. single_fare stays full.
     lines: list[InvoiceLine] = []
     for leg in legs:
         lines.append(
@@ -401,13 +349,9 @@ def price_invoice(
 
     subtotal = Money.total(line.charged for line in lines)
 
-    # 7. green_traveller: −5% on the post-cap total including the commuter-club fee.
-    green_active = Programme.GREEN_TRAVELLER in programmes
-    pre_green_total = subtotal + commuter_club_fee
-    if green_active:
-        green_discount = pre_green_total - pre_green_total.times(_GREEN_MULTIPLIER)
-    else:
-        green_discount = Money.ZERO
+    # 6. Subscription fee, then the post-cap total discount (RULES §7, §7a).
+    commuter_club_fee = discounts.subscription_fee()
+    green_discount = discounts.discount_on_total(subtotal + commuter_club_fee)
     grand_total = subtotal + commuter_club_fee - green_discount
 
     upsells: list[Upsell] = []
@@ -434,6 +378,20 @@ def price_invoice(
         grand_total=grand_total,
         upsells=upsells,
     )
+
+
+def _apply_leg_discounts(rail_legs: list[PricedLeg], discounts: ProgrammeDiscounts) -> None:
+    """Discount each rail single fare, leaving single_fare intact for display."""
+    for leg in rail_legs:
+        leg.pre_cap_charge = discounts.discounted_fare(leg)
+
+
+def _waive_in_band_legs(rail_legs: list[PricedLeg], discounts: ProgrammeDiscounts) -> None:
+    """Zero waived rail legs and mark them to bypass capping (RULES §7a)."""
+    for leg in rail_legs:
+        if discounts.waives(leg):
+            leg.pre_cap_charge = Money.ZERO
+            leg.bypass_cap = True
 
 
 def _compute_upsell_list(
