@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
 from oyster.model import BillingPeriod, Customer, Mode, Programme, Trip
@@ -20,6 +20,7 @@ from oyster.rules.station_registry import StationRegistry
 from oyster.services.customer_directory import CustomerDirectory
 from oyster.services.trip_service import TripService
 
+_CENT = Decimal("0.01")
 _ZERO = Decimal("0.00")
 
 
@@ -27,13 +28,13 @@ def money(value: float | Decimal | int) -> Decimal:
     """Coerce a raw fare value into pence-accurate money.
 
     Floats coming from FareTable are wrapped as Decimal(str(x)) so we never
-    inherit binary-float noise, then rounded to the nearest penny.
+    inherit binary-float noise, then quantized to 0.01 with ROUND_HALF_UP.
     """
     if isinstance(value, Decimal):
         dec = value
     else:
         dec = Decimal(str(value))
-    return round(dec, 2)
+    return dec.quantize(_CENT, rounding=ROUND_HALF_UP)
 
 
 @dataclass
