@@ -16,9 +16,7 @@ from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
 from oyster.model import BillingPeriod, Customer, Programme, Trip
 from oyster.money import Money
 from oyster.pricing import price_invoice
-from oyster.rules.bank_holidays import BankHolidayService
-from oyster.rules.fare_table import FareTable
-from oyster.rules.station_registry import StationRegistry
+from oyster.rules import PricingRules
 from oyster.template_engine import render_file
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "invoice.html.hbs"
@@ -102,22 +100,13 @@ def render_invoice_html(
     period: BillingPeriod,
     trips: list[Trip],
     *,
-    stations: StationRegistry,
-    fares: FareTable,
-    holidays: BankHolidayService,
+    rules: PricingRules,
 ) -> str:
     """Price one customer's trips and render the invoice to HTML (data-in seam).
 
     Pure on its inputs: pricing, context adaptation and template rendering with
     no external-service access.
     """
-    invoice = price_invoice(
-        customer,
-        period,
-        trips,
-        stations=stations,
-        fares=fares,
-        bank_holidays=holidays,
-    )
+    invoice = price_invoice(customer, period, trips, rules=rules)
     context = invoice_to_context(invoice)
     return render_file(_TEMPLATE_PATH, context)

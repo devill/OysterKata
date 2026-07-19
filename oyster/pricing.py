@@ -15,9 +15,7 @@ from decimal import Decimal
 from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
 from oyster.model import BillingPeriod, Customer, Mode, Programme, Trip
 from oyster.money import Money
-from oyster.rules.bank_holidays import BankHolidayService
-from oyster.rules.fare_table import FareTable
-from oyster.rules.station_registry import StationRegistry
+from oyster.rules import PricingRules
 
 # --- Peak / off-peak (RULES §3) ------------------------------------------------
 
@@ -25,9 +23,9 @@ _PEAK_MORNING = (timedelta(hours=6, minutes=30), timedelta(hours=9, minutes=30))
 _PEAK_EVENING = (timedelta(hours=16), timedelta(hours=19))
 
 
-def _is_peak(touch_in: datetime, bank_holidays: BankHolidayService) -> bool:
+def _is_peak(touch_in: datetime, rules: PricingRules) -> bool:
     d = touch_in.date()
-    if bank_holidays.is_holiday(d):
+    if rules.bank_holidays.is_holiday(d):
         return False
     if d.weekday() >= 5:  # Saturday/Sunday
         return False
@@ -65,7 +63,7 @@ def _zone_label(low: int, high: int) -> str:
 
 
 def _price_rail_leg(
-    trip: Trip, peak: bool, stations: StationRegistry, fares: FareTable
+    trip: Trip, peak: bool, rules: PricingRules
 ) -> _PricedLeg:
     """Price a rail-type leg, applying the boundary-station tie-break (RULES §1).
 
@@ -73,8 +71,8 @@ def _price_rail_leg(
     combination of endpoint-zone choices and keep the cheapest single fare. The
     winning combination defines the leg's zones label and band inputs.
     """
-    from_zones = stations.zones_for(trip.from_station)
-    to_zones = stations.zones_for(trip.to_station)
+    from_zones = rules.stations.zones_for(trip.from_station)
+    to_zones = rules.stations.zones_for(trip.to_station)
 
     best: _PricedLeg | None = None
     for fz in from_zones:
@@ -84,7 +82,7 @@ def _price_rail_leg(
             high = max(chosen)
             zones_spanned = high - low + 1
             includes_zone1 = low == 1
-            fare = Money.of(fares.rail_single(includes_zone1, zones_spanned, peak))
+            fare = Money.of(rules.fares.rail_single(includes_zone1, zones_spanned, peak))
             candidate = _PricedLeg(
                 trip=trip,
                 pool="rail",
@@ -106,8 +104,8 @@ def _price_rail_leg(
 # --- Bus/tram flat fares + Hopper (RULES §4) -----------------------------------
 
 
-def _price_flat_leg(trip: Trip, peak: bool, fares: FareTable) -> _PricedLeg:
-    fare = Money.of(fares.flat_fare())
+def _price_flat_leg(trip: Trip, peak: bool, rules: PricingRules) -> _PricedLeg:
+    fare = Money.of(rules.fares.flat_fare())
     return _PricedLeg(
         trip=trip,
         pool="bus",
@@ -122,7 +120,7 @@ def _price_flat_leg(trip: Trip, peak: bool, fares: FareTable) -> _PricedLeg:
     )
 
 
-def _apply_hopper(bus_legs: list[_PricedLeg], fares: FareTable) -> None:
+def _apply_hopper(bus_legs: list[_PricedLeg], rules: PricingRules) -> None:
     """Zero out flat-fare taps inside a 60-minute hopper window (RULES §4).
 
     Taps are processed chronologically. A tap within the window of the window's
@@ -130,7 +128,7 @@ def _apply_hopper(bus_legs: list[_PricedLeg], fares: FareTable) -> None:
     new window. Mutates each leg's pre_cap_charge in place. Hopper runs BEFORE
     capping, so a zeroed tap enters capping already at £0.00.
     """
-    window = timedelta(minutes=fares.hopper_window_minutes())
+    window = timedelta(minutes=rules.fares.hopper_window_minutes())
     window_start: datetime | None = None
     for leg in bus_legs:  # caller passes these in chronological order
         tap = leg.trip.touch_in
@@ -290,10 +288,10 @@ def _apply_commuter_club(rail_legs: list[_PricedLeg], band: tuple[int, int]) -> 
             leg.bypass_cap = True
 
 
-def _reduced_rail_caps(fares: FareTable, band: str, railcard: bool) -> dict[str, Money]:
+def _reduced_rail_caps(rules: PricingRules, band: str, railcard: bool) -> dict[str, Money]:
     """Rail caps for a run, each reduced by ⅓ when railcard is active (RULES §6a)."""
     caps = {
-        level: Money.of(fares.rail_cap(band, level))
+        level: Money.of(rules.fares.rail_cap(band, level))
         for level in ("daily", "weekly", "monthly")
     }
     if railcard:
@@ -317,9 +315,7 @@ def price_invoice(
     period: BillingPeriod,
     trips: list[Trip],
     *,
-    stations: StationRegistry,
-    fares: FareTable,
-    bank_holidays: BankHolidayService,
+    rules: PricingRules,
     programmes: set[Programme] | None = None,
     _compute_upsells: bool = True,
 ) -> Invoice:
@@ -340,11 +336,11 @@ def price_invoice(
     # 1. Price every leg's single fare (rail tie-break, bus flat) in time order.
     priced: list[_PricedLeg] = []
     for trip in trips:
-        peak = _is_peak(trip.touch_in, bank_holidays)
+        peak = _is_peak(trip.touch_in, rules)
         if trip.mode.is_rail_type:
-            priced.append(_price_rail_leg(trip, peak, stations, fares))
+            priced.append(_price_rail_leg(trip, peak, rules))
         else:
-            priced.append(_price_flat_leg(trip, peak, fares))
+            priced.append(_price_flat_leg(trip, peak, rules))
 
     rail_legs = [leg for leg in priced if leg.pool == "rail"]
     bus_legs = [leg for leg in priced if leg.pool == "bus"]
@@ -362,12 +358,12 @@ def price_invoice(
         commuter_club_fee = Money.of(customer.commuter_club_fee)
 
     # 4. Hopper on bus/tram taps, before capping (RULES §4).
-    _apply_hopper(bus_legs, fares)
+    _apply_hopper(bus_legs, rules)
 
     # 5. Capping per pool (RULES §6). commuter-club in-band legs bypass capping.
     rail_band = _rail_band(rail_legs)
     railcard = Programme.RAILCARD in programmes
-    rail_caps = _reduced_rail_caps(fares, rail_band, railcard)
+    rail_caps = _reduced_rail_caps(rules, rail_band, railcard)
     capped_rail_legs = [leg for leg in rail_legs if not leg.bypass_cap]
     rail_final, rail_bound = _cap_pool(
         capped_rail_legs,
@@ -380,9 +376,9 @@ def price_invoice(
             rail_final[id(leg)] = Money.ZERO
     bus_final, bus_bound = _cap_pool(
         bus_legs,
-        Money.of(fares.bus_cap("daily")),
-        Money.of(fares.bus_cap("weekly")),
-        Money.of(fares.bus_cap("monthly")),
+        Money.of(rules.fares.bus_cap("daily")),
+        Money.of(rules.fares.bus_cap("weekly")),
+        Money.of(rules.fares.bus_cap("monthly")),
     )
     final_charge = {**rail_final, **bus_final}
 
@@ -441,9 +437,7 @@ def price_invoice(
             customer,
             period,
             trips,
-            stations=stations,
-            fares=fares,
-            bank_holidays=bank_holidays,
+            rules=rules,
             actual_grand_total=grand_total,
             priced=priced,
         )
@@ -468,9 +462,7 @@ def _compute_upsell_list(
     period: BillingPeriod,
     trips: list[Trip],
     *,
-    stations: StationRegistry,
-    fares: FareTable,
-    bank_holidays: BankHolidayService,
+    rules: PricingRules,
     actual_grand_total: Money,
     priced: list[_PricedLeg],
 ) -> list[Upsell]:
@@ -494,14 +486,12 @@ def _compute_upsell_list(
     ):
         if programme not in eligible:
             continue
-        upsell_customer = _customer_for_upsell(customer, programme, priced, fares)
+        upsell_customer = _customer_for_upsell(customer, programme, priced, rules)
         re_run = price_invoice(
             customer=upsell_customer,
             period=period,
             trips=trips,
-            stations=stations,
-            fares=fares,
-            bank_holidays=bank_holidays,
+            rules=rules,
             programmes=set(customer.enrolled) | {programme},
             _compute_upsells=False,
         )
@@ -537,7 +527,7 @@ def _customer_for_upsell(
     customer: Customer,
     programme: Programme,
     priced: list[_PricedLeg],
-    fares: FareTable,
+    rules: PricingRules,
 ) -> Customer:
     """Return the customer to re-price for an upsell run.
 
@@ -556,5 +546,5 @@ def _customer_for_upsell(
     else:
         high = int(band_label.split("-")[1])
         offered_band = (1, high)
-    fee = fares.commuter_club_fee(band_label)
+    fee = rules.fares.commuter_club_fee(band_label)
     return replace(customer, commuter_club_band=offered_band, commuter_club_fee=fee)

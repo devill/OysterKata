@@ -19,9 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 from oyster.generator import render_invoice_html  # noqa: E402
 from oyster.model import BillingPeriod  # noqa: E402
-from oyster.rules.bank_holidays import BankHolidayService  # noqa: E402
-from oyster.rules.fare_table import FareTable  # noqa: E402
-from oyster.rules.station_registry import StationRegistry  # noqa: E402
+from oyster.rules import PricingRules  # noqa: E402
 from oyster.services.customer_directory import CustomerDirectory  # noqa: E402
 from oyster.services.trip_service import TripService  # noqa: E402
 
@@ -34,16 +32,12 @@ _OUT_DIR = ROOT / "out"
 def main() -> None:
     customers = CustomerDirectory()
     trip_service = TripService()
-    stations = StationRegistry()
-    fares = FareTable()
-    holidays = BankHolidayService()
+    rules = PricingRules()
 
     for customer_id in _CUSTOMER_IDS:
         customer = customers.get(customer_id)
         trips = trip_service.trips_for(customer_id, _PERIOD)
-        html = render_invoice_html(
-            customer, _PERIOD, trips, stations=stations, fares=fares, holidays=holidays
-        )
+        html = render_invoice_html(customer, _PERIOD, trips, rules=rules)
         out_path = _OUT_DIR / f"{customer_id}_{_PERIOD_TEXT}.html"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(html, encoding="utf-8")
