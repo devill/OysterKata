@@ -10,32 +10,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
 from oyster.model import BillingPeriod, Customer, Mode, Programme, Trip
+from oyster.money import Money
 from oyster.rules.bank_holidays import BankHolidayService
 from oyster.rules.fare_table import FareTable
 from oyster.rules.station_registry import StationRegistry
 from oyster.services.customer_directory import CustomerDirectory
 from oyster.services.trip_service import TripService
-
-_CENT = Decimal("0.01")
-_ZERO = Decimal("0.00")
-
-
-def money(value: float | Decimal | int) -> Decimal:
-    """Coerce a raw fare value into pence-accurate money.
-
-    Floats coming from FareTable are wrapped as Decimal(str(x)) so we never
-    inherit binary-float noise, then quantized to 0.01 with ROUND_HALF_UP.
-    """
-    if isinstance(value, Decimal):
-        dec = value
-    else:
-        dec = Decimal(str(value))
-    return dec.quantize(_CENT, rounding=ROUND_HALF_UP)
-
 
 @dataclass
 class Services:
@@ -90,8 +74,8 @@ class _PricedLeg:
     chosen_zones: tuple[int, ...]  # the chosen endpoint zones (rail only)
     includes_zone1: bool
     start_zones: tuple[int, ...]  # zones of the start station (rail only)
-    single_fare: Decimal  # full fare before any loyalty discount / hopper / cap
-    pre_cap_charge: Decimal  # post-loyalty-discount + post-hopper charge fed to capping
+    single_fare: Money  # full fare before any loyalty discount / hopper / cap
+    pre_cap_charge: Money  # post-loyalty-discount + post-hopper charge fed to capping
     bypass_cap: bool = False  # commuter-club in-band rail legs are charged £0, skip capping
 
 
@@ -121,8 +105,7 @@ def _price_rail_leg(
             high = max(chosen)
             zones_spanned = high - low + 1
             includes_zone1 = low == 1
-            raw = fares.rail_single(includes_zone1, zones_spanned, peak)
-            fare = money(raw)
+            fare = Money.of(fares.rail_single(includes_zone1, zones_spanned, peak))
             candidate = _PricedLeg(
                 trip=trip,
                 pool="rail",
@@ -145,7 +128,7 @@ def _price_rail_leg(
 
 
 def _price_flat_leg(trip: Trip, peak: bool, fares: FareTable) -> _PricedLeg:
-    fare = money(fares.flat_fare())
+    fare = Money.of(fares.flat_fare())
     return _PricedLeg(
         trip=trip,
         pool="bus",
@@ -176,7 +159,7 @@ def _apply_hopper(bus_legs: list[_PricedLeg], fares: FareTable) -> None:
             window_start = tap
             leg.pre_cap_charge = leg.single_fare
         else:
-            leg.pre_cap_charge = _ZERO
+            leg.pre_cap_charge = Money.ZERO
 
 
 # --- Cap engine (RULES §6) -----------------------------------------------------
@@ -199,25 +182,25 @@ def _rail_band(rail_legs: list[_PricedLeg]) -> str:
     return f"Z1-{max(max_zone, 2)}"
 
 
-def _allocate_window(charges: list[Decimal], cap: Decimal) -> list[Decimal]:
+def _allocate_window(charges: list[Money], cap: Money) -> list[Money]:
     """Allocate a cap across a window's charges chronologically (RULES §6d).
 
     Accumulate full charges in time order; the charge that pushes the running
     total over the cap is reduced to the remainder; every later charge becomes
     £0.00. If the window never exceeds the cap, charges are returned unchanged.
     """
-    if sum(charges) <= cap:
+    if Money.total(charges) <= cap:
         return list(charges)
-    allocated: list[Decimal] = []
-    running = _ZERO
+    allocated: list[Money] = []
+    running = Money.ZERO
     capped = False
     for charge in charges:
         if capped:
-            allocated.append(_ZERO)
+            allocated.append(Money.ZERO)
             continue
         if running + charge <= cap:
             allocated.append(charge)
-            running += charge
+            running = running + charge
         else:
             allocated.append(cap - running)
             running = cap
@@ -232,10 +215,10 @@ def _iso_week_key(d: date) -> tuple[int, int]:
 
 def _cap_pool(
     legs: list[_PricedLeg],
-    daily_cap: Decimal,
-    weekly_cap: Decimal,
-    monthly_cap: Decimal,
-) -> tuple[dict[int, Decimal], str | None]:
+    daily_cap: Money,
+    weekly_cap: Money,
+    monthly_cap: Money,
+) -> tuple[dict[int, Money], str | None]:
     """Run nested daily/weekly/monthly capping for one pool (RULES §6b–d).
 
     `legs` must be chronologically ordered and already carry pre_cap_charge
@@ -243,13 +226,13 @@ def _cap_pool(
     Returns the final per-leg charge keyed by leg id(), plus the most aggressive
     level that actually reduced the pool total.
     """
-    final: dict[int, Decimal] = {}
+    final: dict[int, Money] = {}
 
     # Daily: cap each calendar date independently.
     by_day: dict[date, list[_PricedLeg]] = {}
     for leg in legs:
         by_day.setdefault(leg.trip.touch_in.date(), []).append(leg)
-    daily_charge: dict[int, Decimal] = {}
+    daily_charge: dict[int, Money] = {}
     for day_legs in by_day.values():
         allocated = _allocate_window([leg.pre_cap_charge for leg in day_legs], daily_cap)
         for leg, charge in zip(day_legs, allocated):
@@ -259,7 +242,7 @@ def _cap_pool(
     by_week: dict[tuple[int, int], list[_PricedLeg]] = {}
     for leg in legs:
         by_week.setdefault(_iso_week_key(leg.trip.touch_in.date()), []).append(leg)
-    weekly_charge: dict[int, Decimal] = {}
+    weekly_charge: dict[int, Money] = {}
     for week_legs in by_week.values():
         allocated = _allocate_window([daily_charge[id(leg)] for leg in week_legs], weekly_cap)
         for leg, charge in zip(week_legs, allocated):
@@ -271,10 +254,10 @@ def _cap_pool(
         final[id(leg)] = charge
 
     # Determine which level actually reduced the pool total (most aggressive wins).
-    uncapped_sum = sum((leg.pre_cap_charge for leg in legs), _ZERO)
-    daily_sum = sum(daily_charge.values(), _ZERO)
-    weekly_sum = sum(weekly_charge.values(), _ZERO)
-    monthly_sum = sum(final.values(), _ZERO)
+    uncapped_sum = Money.total(leg.pre_cap_charge for leg in legs)
+    daily_sum = Money.total(daily_charge.values())
+    weekly_sum = Money.total(weekly_charge.values())
+    monthly_sum = Money.total(final.values())
     bound_level: str | None = None
     if daily_sum < uncapped_sum:
         bound_level = "daily"
@@ -307,12 +290,12 @@ def _apply_per_leg_discounts(
     zone_resident = Programme.ZONE_RESIDENT in programmes
     railcard = Programme.RAILCARD in programmes
     for leg in rail_legs:
-        charge = leg.single_fare
+        ratios = []
         if zone_resident and home_zone in leg.start_zones:
-            charge = charge * _ZONE_RESIDENT_MULTIPLIER
+            ratios.append(_ZONE_RESIDENT_MULTIPLIER)
         if railcard and not leg.peak:
-            charge = charge * _THIRD_MULTIPLIER
-        leg.pre_cap_charge = money(charge)
+            ratios.append(_THIRD_MULTIPLIER)
+        leg.pre_cap_charge = leg.single_fare.times(*ratios)
 
 
 def _apply_commuter_club(rail_legs: list[_PricedLeg], band: tuple[int, int]) -> None:
@@ -324,22 +307,25 @@ def _apply_commuter_club(rail_legs: list[_PricedLeg], band: tuple[int, int]) -> 
     low, high = band
     for leg in rail_legs:
         if leg.chosen_zones and all(low <= z <= high for z in leg.chosen_zones):
-            leg.pre_cap_charge = _ZERO
+            leg.pre_cap_charge = Money.ZERO
             leg.bypass_cap = True
 
 
-def _reduced_rail_caps(fares: FareTable, band: str, railcard: bool) -> dict[str, Decimal]:
+def _reduced_rail_caps(fares: FareTable, band: str, railcard: bool) -> dict[str, Money]:
     """Rail caps for a run, each reduced by ⅓ when railcard is active (RULES §6a)."""
-    caps = {level: money(fares.rail_cap(band, level)) for level in ("daily", "weekly", "monthly")}
+    caps = {
+        level: Money.of(fares.rail_cap(band, level))
+        for level in ("daily", "weekly", "monthly")
+    }
     if railcard:
-        caps = {level: money(value * _THIRD_MULTIPLIER) for level, value in caps.items()}
+        caps = {level: value.times(_THIRD_MULTIPLIER) for level, value in caps.items()}
     return caps
 
 
 def _fraction_off_peak(priced: list[_PricedLeg]) -> Decimal:
     """Share of all taps in the period that are off-peak (RULES §7)."""
     if not priced:
-        return _ZERO
+        return Decimal(0)
     off_peak = sum(1 for leg in priced if not leg.peak)
     return Decimal(off_peak) / Decimal(len(priced))
 
@@ -422,12 +408,12 @@ def price_invoice(
 
     # 3. commuter_club zeroes in-band rail legs and removes them from the rail pool.
     commuter_club = Programme.COMMUTER_CLUB in programmes
-    commuter_club_fee = _ZERO
+    commuter_club_fee = Money.ZERO
     if commuter_club:
         band = customer.commuter_club_band
         assert band is not None, "commuter_club enrolment requires a band"
         _apply_commuter_club(rail_legs, band)
-        commuter_club_fee = money(customer.commuter_club_fee)
+        commuter_club_fee = Money.of(customer.commuter_club_fee)
 
     # 4. Hopper on bus/tram taps, before capping (RULES §4).
     _apply_hopper(bus_legs, fares)
@@ -445,12 +431,12 @@ def price_invoice(
     )
     for leg in rail_legs:
         if leg.bypass_cap:
-            rail_final[id(leg)] = _ZERO
+            rail_final[id(leg)] = Money.ZERO
     bus_final, bus_bound = _cap_pool(
         bus_legs,
-        money(fares.bus_cap("daily")),
-        money(fares.bus_cap("weekly")),
-        money(fares.bus_cap("monthly")),
+        Money.of(fares.bus_cap("daily")),
+        Money.of(fares.bus_cap("weekly")),
+        Money.of(fares.bus_cap("monthly")),
     )
     final_charge = {**rail_final, **bus_final}
 
@@ -470,10 +456,10 @@ def price_invoice(
             )
         )
 
-    rail_uncapped = sum((leg.pre_cap_charge for leg in rail_legs), _ZERO)
-    rail_final_sum = sum((final_charge[id(leg)] for leg in rail_legs), _ZERO)
-    bus_uncapped = sum((leg.pre_cap_charge for leg in bus_legs), _ZERO)
-    bus_final_sum = sum(bus_final.values(), _ZERO)
+    rail_uncapped = Money.total(leg.pre_cap_charge for leg in rail_legs)
+    rail_final_sum = Money.total(final_charge[id(leg)] for leg in rail_legs)
+    bus_uncapped = Money.total(leg.pre_cap_charge for leg in bus_legs)
+    bus_final_sum = Money.total(bus_final.values())
 
     caps = [
         CapResult(
@@ -492,15 +478,15 @@ def price_invoice(
         ),
     ]
 
-    subtotal = sum((line.charged for line in lines), _ZERO)
+    subtotal = Money.total(line.charged for line in lines)
 
     # 7. green_traveller: −5% on the post-cap total including the commuter-club fee.
     green_active = Programme.GREEN_TRAVELLER in programmes
     pre_green_total = subtotal + commuter_club_fee
     if green_active:
-        green_discount = pre_green_total - money(pre_green_total * _GREEN_MULTIPLIER)
+        green_discount = pre_green_total - pre_green_total.times(_GREEN_MULTIPLIER)
     else:
-        green_discount = _ZERO
+        green_discount = Money.ZERO
     grand_total = subtotal + commuter_club_fee - green_discount
 
     upsells: list[Upsell] = []
@@ -539,7 +525,7 @@ def _compute_upsell_list(
     stations: StationRegistry,
     fares: FareTable,
     bank_holidays: BankHolidayService,
-    actual_grand_total: Decimal,
+    actual_grand_total: Money,
     priced: list[_PricedLeg],
 ) -> list[Upsell]:
     """Build the single highest-saving upsell for the ACTUAL invoice (RULES §7b).
@@ -574,7 +560,7 @@ def _compute_upsell_list(
             _compute_upsells=False,
         )
         saving = actual_grand_total - re_run.grand_total
-        if saving > _ZERO:
+        if saving > Money.ZERO:
             upsells.append(
                 Upsell(
                     programme=programme.value,
