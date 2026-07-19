@@ -15,7 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from oyster.invoice import Invoice
 from oyster.model import BillingPeriod
-from oyster.pricing import compute_invoice, default_services
+from oyster.pricing import price_invoice
+from oyster.rules.bank_holidays import BankHolidayService
+from oyster.rules.fare_table import FareTable
+from oyster.rules.station_registry import StationRegistry
+from oyster.services.customer_directory import CustomerDirectory
+from oyster.services.trip_service import TripService
 
 
 def _print_invoice(invoice: Invoice) -> None:
@@ -47,11 +52,18 @@ def _print_loyalty(invoice: Invoice) -> None:
 
 def main() -> None:
     period = BillingPeriod(year=2026, month=4)
-    services = default_services()
+    customers = CustomerDirectory()
+    trip_service = TripService()
+    stations = StationRegistry()
+    fares = FareTable()
+    holidays = BankHolidayService()
 
     invoices: dict[str, Invoice] = {}
-    for customer in services.customers.all():
-        invoice = compute_invoice(customer, period, services)
+    for customer in customers.all():
+        trips = trip_service.trips_for(customer.id, period)
+        invoice = price_invoice(
+            customer, period, trips, stations=stations, fares=fares, bank_holidays=holidays
+        )
         invoices[customer.id] = invoice
         _print_invoice(invoice)
         print()

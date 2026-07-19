@@ -1,9 +1,9 @@
-"""Pricing engine for Oyster PAYG invoices (Phase 2a — no loyalty programmes).
+"""Pricing engine for Oyster PAYG invoices.
 
-This module is intentionally written in a moderately procedural "legacy" style:
-the rules are idiosyncratic and the code follows RULES.md step by step rather
-than over-abstracting. Phase 2b will layer loyalty programmes on top via the
-`programmes` seam in `price_invoice` — see the LOYALTY SEAM comments below.
+Pure computation over already-resolved data: callers fetch the customer and
+their trips from the upstream systems and hand them in (RULES §9). Only the
+deterministic reference data in `oyster.rules` is consulted here, so a pricing
+run is reproducible from its arguments alone.
 """
 
 from __future__ import annotations
@@ -18,27 +18,6 @@ from oyster.money import Money
 from oyster.rules.bank_holidays import BankHolidayService
 from oyster.rules.fare_table import FareTable
 from oyster.rules.station_registry import StationRegistry
-from oyster.services.customer_directory import CustomerDirectory
-from oyster.services.trip_service import TripService
-
-@dataclass
-class Services:
-    customers: CustomerDirectory
-    trips: TripService
-    stations: StationRegistry
-    fares: FareTable
-    bank_holidays: BankHolidayService
-
-
-def default_services() -> Services:
-    return Services(
-        customers=CustomerDirectory(),
-        trips=TripService(),
-        stations=StationRegistry(),
-        fares=FareTable(),
-        bank_holidays=BankHolidayService(),
-    )
-
 
 # --- Peak / off-peak (RULES §3) ------------------------------------------------
 
@@ -331,32 +310,6 @@ def _fraction_off_peak(priced: list[_PricedLeg]) -> Decimal:
 
 
 # --- Engine entry point --------------------------------------------------------
-
-
-def compute_invoice(
-    customer: Customer,
-    period: BillingPeriod,
-    services: Services,
-    *,
-    programmes: set[Programme] | None = None,
-    _compute_upsells: bool = True,
-) -> Invoice:
-    """Compute an invoice for one customer over a billing period.
-
-    Thin wrapper: fetches the customer's trips from the external trip service and
-    delegates to `price_invoice`, which does the pricing on plain data.
-    """
-    trips = services.trips.trips_for(customer.id, period)
-    return price_invoice(
-        customer,
-        period,
-        trips,
-        stations=services.stations,
-        fares=services.fares,
-        bank_holidays=services.bank_holidays,
-        programmes=programmes,
-        _compute_upsells=_compute_upsells,
-    )
 
 
 def price_invoice(
