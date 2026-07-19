@@ -238,14 +238,6 @@ def _bound_level(stages: list[list[Money]]) -> str | None:
     return bound
 
 
-def _fraction_off_peak(priced: list[PricedLeg]) -> Decimal:
-    """Share of all taps in the period that are off-peak (RULES §7)."""
-    if not priced:
-        return Decimal(0)
-    off_peak = sum(1 for leg in priced if not leg.peak)
-    return Decimal(off_peak) / Decimal(len(priced))
-
-
 def _cap_rail_pool(
     rail_legs: list[PricedLeg], rules: PricingRules, discounts: ProgrammeDiscounts
 ) -> CappedPool:
@@ -340,6 +332,17 @@ def _waive_in_band_legs(rail_legs: list[PricedLeg], discounts: ProgrammeDiscount
             leg.bypass_cap = True
 
 
+# --- Upsells (RULES §7b) -------------------------------------------------------
+
+_UPSELL_ORDER = (
+    Programme.RAILCARD,
+    Programme.ZONE_RESIDENT,
+    Programme.COMMUTER_CLUB,
+    Programme.GREEN_TRAVELLER,
+)
+_GREEN_OFF_PEAK_THRESHOLD = Decimal("0.8")
+
+
 def _compute_upsell_list(
     customer: Customer,
     period: BillingPeriod,
@@ -361,17 +364,11 @@ def _compute_upsell_list(
     """
     eligible = _eligible_upsell_programmes(customer, priced)
     upsells: list[Upsell] = []
-    for programme in (
-        Programme.RAILCARD,
-        Programme.ZONE_RESIDENT,
-        Programme.COMMUTER_CLUB,
-        Programme.GREEN_TRAVELLER,
-    ):
+    for programme in _UPSELL_ORDER:
         if programme not in eligible:
             continue
-        upsell_customer = _customer_for_upsell(customer, programme, priced, rules)
         re_run = price_invoice(
-            customer=upsell_customer,
+            customer=_customer_for_upsell(customer, programme, priced, rules),
             period=period,
             trips=trips,
             rules=rules,
@@ -389,19 +386,26 @@ def _compute_upsell_list(
             )
     if not upsells:
         return []
-    return [max(upsells, key=lambda u: u.saving)]
+    return [max(upsells, key=lambda upsell: upsell.saving)]
 
 
-def _eligible_upsell_programmes(
-    customer: Customer, priced: list[PricedLeg]
-) -> set[Programme]:
+def _fraction_off_peak(priced: list[PricedLeg]) -> Decimal:
+    """Share of all taps in the period that are off-peak (RULES §7)."""
+    if not priced:
+        return Decimal(0)
+    off_peak = sum(1 for leg in priced if not leg.peak)
+    return Decimal(off_peak) / Decimal(len(priced))
+
+
+def _eligible_upsell_programmes(customer: Customer, priced: list[PricedLeg]) -> set[Programme]:
     enrolled = set(customer.enrolled)
-    eligible: set[Programme] = set()
-    for programme in (Programme.RAILCARD, Programme.ZONE_RESIDENT, Programme.COMMUTER_CLUB):
-        if programme not in enrolled:
-            eligible.add(programme)
+    eligible = {
+        programme
+        for programme in (Programme.RAILCARD, Programme.ZONE_RESIDENT, Programme.COMMUTER_CLUB)
+        if programme not in enrolled
+    }
     if Programme.GREEN_TRAVELLER not in enrolled:
-        if _fraction_off_peak(priced) >= Decimal("0.8"):
+        if _fraction_off_peak(priced) >= _GREEN_OFF_PEAK_THRESHOLD:
             eligible.add(Programme.GREEN_TRAVELLER)
     return eligible
 
@@ -421,13 +425,15 @@ def _customer_for_upsell(
         return customer
     rail_legs = [leg for leg in priced if leg.pool == "rail"]
     band_label = _rail_band(rail_legs)
+    return replace(
+        customer,
+        commuter_club_band=_offered_band(band_label, rail_legs),
+        commuter_club_fee=rules.fares.commuter_club_fee(band_label),
+    )
+
+
+def _offered_band(band_label: str, rail_legs: list[PricedLeg]) -> tuple[int, int]:
     if band_label == "outer":
-        chosen_zones = [z for leg in rail_legs for z in leg.chosen_zones]
-        low = min(chosen_zones, default=2)
-        high = max(chosen_zones, default=6)
-        offered_band = (low, high)
-    else:
-        high = int(band_label.split("-")[1])
-        offered_band = (1, high)
-    fee = rules.fares.commuter_club_fee(band_label)
-    return replace(customer, commuter_club_band=offered_band, commuter_club_fee=fee)
+        chosen_zones = [zone for leg in rail_legs for zone in leg.chosen_zones]
+        return (min(chosen_zones, default=2), max(chosen_zones, default=6))
+    return (1, int(band_label.split("-")[1]))
