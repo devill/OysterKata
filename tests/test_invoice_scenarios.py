@@ -15,9 +15,7 @@ import pytest
 from approvaltests import Options, verify
 
 from oyster.generator import render_invoice_html
-from oyster.rules.bank_holidays import BankHolidayService
-from oyster.rules.fare_table import FareTable
-from oyster.rules.station_registry import StationRegistry
+from oyster.rules import PricingRules
 
 from scenario_support import ScenarioNamer, scenario_provider
 
@@ -35,9 +33,7 @@ def test_invoice_matches_approved(scenario):
         scenario.customer,
         scenario.period,
         scenario.trips,
-        stations=StationRegistry(),
-        fares=FareTable(),
-        holidays=BankHolidayService(),
+        rules=PricingRules(),
     )
     options = (
         Options()

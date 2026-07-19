@@ -13,11 +13,9 @@ import re
 import sys
 from pathlib import Path
 
-from oyster.generator import generate_invoice_html
+from oyster.generator import render_invoice_html
 from oyster.model import BillingPeriod
-from oyster.rules.bank_holidays import BankHolidayService
-from oyster.rules.fare_table import FareTable
-from oyster.rules.station_registry import StationRegistry
+from oyster.rules import PricingRules
 from oyster.services.customer_directory import CustomerDirectory
 from oyster.services.trip_service import TripService
 
@@ -43,23 +41,15 @@ def main(argv: list[str]) -> int:
         return 2
 
     customer_id, period_text = argv
-    customers = CustomerDirectory()
     try:
         period = _parse_period(period_text)
-        customers.get(customer_id)  # fail early with a clear error
+        customer = CustomerDirectory().get(customer_id)
     except (ValueError, KeyError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    html = generate_invoice_html(
-        customer_id,
-        period,
-        customers=customers,
-        trips=TripService(),
-        stations=StationRegistry(),
-        fares=FareTable(),
-        holidays=BankHolidayService(),
-    )
+    trips = TripService().trips_for(customer_id, period)
+    html = render_invoice_html(customer, period, trips, rules=PricingRules())
 
     _OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = _OUT_DIR / f"{customer_id}_{period_text}.html"
