@@ -13,7 +13,8 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from oyster.invoice import CapResult, Invoice, InvoiceLine, Upsell
+from oyster.invoice import Invoice, Upsell
+from oyster.invoice_builder import CappedPool, InvoiceBuilder
 from oyster.model import BillingPeriod, Customer, Mode, Programme, Trip
 from oyster.money import Money
 from oyster.priced_leg import PricedLeg
@@ -239,20 +240,34 @@ def _bound_level(stages: list[list[Money]]) -> str | None:
     return bound
 
 
-def _rail_caps(rules: PricingRules, band: str, discounts: ProgrammeDiscounts) -> dict[str, Money]:
-    """Rail caps for a run, after any programme reduction (RULES §6a)."""
-    return {
-        level: discounts.discounted_cap(Money.of(rules.fares.rail_cap(band, level)))
-        for level in _CAP_LEVELS
-    }
-
-
 def _fraction_off_peak(priced: list[PricedLeg]) -> Decimal:
     """Share of all taps in the period that are off-peak (RULES §7)."""
     if not priced:
         return Decimal(0)
     off_peak = sum(1 for leg in priced if not leg.peak)
     return Decimal(off_peak) / Decimal(len(priced))
+
+
+def _cap_rail_pool(
+    rail_legs: list[PricedLeg], rules: PricingRules, discounts: ProgrammeDiscounts
+) -> CappedPool:
+    """Cap the rail pool at its band's caps; commuter-club in-band legs bypass it."""
+    band = _rail_band(rail_legs)
+    caps = {
+        level: discounts.discounted_cap(Money.of(rules.fares.rail_cap(band, level)))
+        for level in _CAP_LEVELS
+    }
+    bound_level = _cap_pool([leg for leg in rail_legs if not leg.bypass_cap], caps)
+    for leg in rail_legs:
+        if leg.bypass_cap:
+            leg.charged = Money.ZERO
+    return CappedPool(name="rail", band=band, legs=rail_legs, bound_level=bound_level)
+
+
+def _cap_bus_pool(bus_legs: list[PricedLeg], rules: PricingRules) -> CappedPool:
+    caps = {level: Money.of(rules.fares.bus_cap(level)) for level in _CAP_LEVELS}
+    bound_level = _cap_pool(bus_legs, caps)
+    return CappedPool(name="bus", band="—", legs=bus_legs, bound_level=bound_level)
 
 
 # --- Engine entry point --------------------------------------------------------
@@ -294,87 +309,23 @@ def price_invoice(
     # 3. Hopper on bus/tram taps, also before capping (RULES §4).
     _apply_hopper(bus_legs, rules)
 
-    # 4. Capping per pool (RULES §6). commuter-club in-band legs bypass capping.
-    rail_band = _rail_band(rail_legs)
-    rail_bound = _cap_pool(
-        [leg for leg in rail_legs if not leg.bypass_cap],
-        _rail_caps(rules, rail_band, discounts),
-    )
-    for leg in rail_legs:
-        if leg.bypass_cap:
-            leg.charged = Money.ZERO
-    bus_caps = {level: Money.of(rules.fares.bus_cap(level)) for level in _CAP_LEVELS}
-    bus_bound = _cap_pool(bus_legs, bus_caps)
+    # 4. Capping per pool (RULES §6), then assemble the invoice.
+    pools = [_cap_rail_pool(rail_legs, rules, discounts), _cap_bus_pool(bus_legs, rules)]
+    invoice = InvoiceBuilder(customer, period, legs, pools, discounts).build()
 
-    # 5. Assemble invoice lines in original time order. single_fare stays full.
-    lines: list[InvoiceLine] = []
-    for leg in legs:
-        lines.append(
-            InvoiceLine(
-                date=leg.trip.touch_in.date(),
-                time=leg.trip.touch_in.strftime("%H:%M"),
-                mode=leg.trip.mode.value,
-                route=leg.route,
-                zones=leg.zones_label,
-                peak=leg.peak,
-                single_fare=leg.single_fare,
-                charged=leg.charged,
-            )
-        )
-
-    rail_uncapped = Money.total(leg.pre_cap_charge for leg in rail_legs)
-    rail_final_sum = Money.total(leg.charged for leg in rail_legs)
-    bus_uncapped = Money.total(leg.pre_cap_charge for leg in bus_legs)
-    bus_final_sum = Money.total(leg.charged for leg in bus_legs)
-
-    caps = [
-        CapResult(
-            pool="rail",
-            band=rail_band,
-            bound_level=rail_bound,
-            uncapped_sum=rail_uncapped,
-            discount=rail_uncapped - rail_final_sum,
-        ),
-        CapResult(
-            pool="bus",
-            band="—",
-            bound_level=bus_bound,
-            uncapped_sum=bus_uncapped,
-            discount=bus_uncapped - bus_final_sum,
-        ),
-    ]
-
-    subtotal = Money.total(line.charged for line in lines)
-
-    # 6. Subscription fee, then the post-cap total discount (RULES §7, §7a).
-    commuter_club_fee = discounts.subscription_fee()
-    green_discount = discounts.discount_on_total(subtotal + commuter_club_fee)
-    grand_total = subtotal + commuter_club_fee - green_discount
-
-    upsells: list[Upsell] = []
     if _compute_upsells and programmes == set(customer.enrolled):
-        upsells = _compute_upsell_list(
-            customer,
-            period,
-            trips,
-            rules=rules,
-            actual_grand_total=grand_total,
-            priced=legs,
+        invoice = replace(
+            invoice,
+            upsells=_compute_upsell_list(
+                customer,
+                period,
+                trips,
+                rules=rules,
+                actual_grand_total=invoice.grand_total,
+                priced=legs,
+            ),
         )
-
-    return Invoice(
-        customer_id=customer.id,
-        customer_name=customer.name,
-        period_label=period.label,
-        enrolled=tuple(p.value for p in customer.enrolled),
-        lines=lines,
-        caps=caps,
-        subtotal=subtotal,
-        commuter_club_fee=commuter_club_fee,
-        green_discount=green_discount,
-        grand_total=grand_total,
-        upsells=upsells,
-    )
+    return invoice
 
 
 def _apply_leg_discounts(rail_legs: list[PricedLeg], discounts: ProgrammeDiscounts) -> None:
