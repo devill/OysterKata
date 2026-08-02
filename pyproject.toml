@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 [project.optional-dependencies]
 test = [
     "pytest>=9.1.1",
-    "approvaltests>=19.0.0",
+    "approvaltests>=19.1.0",
 ]
 
 [tool.pytest.ini_options]
