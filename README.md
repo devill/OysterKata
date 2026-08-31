@@ -48,26 +48,12 @@ Open the generated file in `out/` in a browser to see the rendered invoice.
 
 Stuck on where to begin? Paste something like this to your coding agent:
 
-> Please create a method that generates a single invoice from data passed
-> straight into it, so it can back a Constrained Test. The test should render the
-> real HTML invoice and assert on that HTML — the template is part of what I want
-> to cover — without ever touching the external services (the customer directory
-> and the journey-history store), which are non-deterministic and unavailable
-> from a test.
->
-> Things to consider:
-> - The system is untested and business-critical. Keep production changes minimal
->   and easy to validate — a behaviour-preserving extraction, with no change to
->   pricing logic, rounding or ordering, and no change to public signatures or
->   existing callers.
-> - The test must be a thin wrapper around the real production code — don't
->   duplicate any pricing logic in it.
-> - Use an approval test so the rendered HTML is the snapshot. Pin the current
->   behaviour exactly, quirks included; if you spot one, flag it rather than fix
->   it here.
-> - Use atomic commits with clear messages.
-> - Explore the code first. If such a method already exists, stop and point me to
->   it. Otherwise show me a short plan before changing anything.
+> I have a data-in method that renders an HTML invoice from a customer, a billing period and a list of trips, without touching the external services. Turn it into a single constrained approval test fed by many scenario files.
+> Format:
+> One YAML file per scenario, in a scenarios directory. Each file lists only the non-default inputs for that case — the customer fields it varies (home zone, enrolled programmes, commuter-club band and fee), the billing period, and the list of trips (touch-in time, mode, from/to station). Anything omitted falls back to a sensible default the test supplies, so each file stays small and the behaviour under test is obvious at a glance.
+> The approved output is the rendered HTML invoice — one .approved.html per scenario, reviewed as a diff. PyYAML as a test-only dependency is fine.
+> Build it as the four standard parts: one parametrised test with the scenario name as its id; a provider that loads every YAML file from the directory and builds the plain inputs; a namer mapping each scenario to its approved/received HTML; and a diff reporter that is quiet in CI and opens a diff tool locally. IMPORTANT use an existing approval test package, don't roll your own.
+> Keep the test a thin wrapper around the real production code — no pricing logic in it, and the deterministic fare/zone/calendar rules used as-is. Never instantiate the external services. Pin current behaviour exactly; if you spot a quirk, flag it rather than fix it. Get one scenario passing end to end first, then add cases.
 
 ## A second prompt: grow coverage from scenario files
 
